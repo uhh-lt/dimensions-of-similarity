@@ -52,7 +52,10 @@ class SemEvalDataset(Dataset):
 
     def load_csv(self, csv_path):
         reader = csv.DictReader(open(csv_path))
+        i = 0
         for data in reader:
+            # if i > 200:
+            #     break
             converted: Dict[str, Union[float, str]] = {
                     k.lower() : float(v)
                     if k in DIMENSIONS_LONG or k in DIMENSIONS
@@ -68,9 +71,12 @@ class SemEvalDataset(Dataset):
                 converted[new_name] = converted[old_name]
                 del converted[old_name]
             pair = ArticlePair(**converted, article_1=None, article_2=None)
+            # if pair.url1_lang != "en" or pair.url2_lang != "en":
+            #     continue
             try:
                 pair.article_1 = self.get_article_by_id(pair.id_1)
                 pair.article_2 = self.get_article_by_id(pair.id_2)
+                i += 1
                 yield pair
             except ValueError as e:
                 print("Error loading article", e)
@@ -85,14 +91,14 @@ class SemEvalDataset(Dataset):
             data = json.load(open(file_list[0]))
             return Article(text=data["text"], title=data["title"], publish_date=data["publish_date"])
 
-    def __getitem__(self, i: ArticlePair):
+    def __getitem__(self, i: int) -> ArticlePair:
         return self.article_pairs[i]
 
 
 def main():
     total = 0
     nar_total_different = 0
-    for pair in SemEvalDataset(Path("data/train.csv"), Path("data/train_data")):
+    for pair in SemEvalDataset(Path("data/all.csv"), Path("data/all_data")):
         if abs(pair.narrative - pair.overall) >= 2:
             print(f"======= NAR {pair.narrative} - Overall {pair.overall} =========")
             print(pair.url1_lang)
