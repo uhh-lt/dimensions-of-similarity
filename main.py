@@ -5,14 +5,22 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import cos_sim
 from dos.dataset import SemEvalDataset, DIMENSIONS
-from scipy.stats import pearsonr
 
 from torch.nn.functional import cosine_similarity
 
-pd.set_option('display.precision',2)
+pd.set_option('display.precision', 2)
 
 def main():
-    model = SentenceTransformer("sentence-transformers/LaBSE") # 'all-MiniLM-L6-v2')
+    dataset = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
+    for model_name in ["bert-base-multilingual-cased", "sentence-transformers/stsb-xlm-r-multilingual", "sentence-transformers/LaBSE", "all-MiniLM-L6-v2", "all-mpnet-base-v2"]:
+        try:
+            eval_model(model_name, dataset)
+        except Exception as e:
+            print("Error evaluating", model_name)
+            print(e)
+
+def eval_model(model_name, dataset):
+    model = SentenceTransformer(model_name)
     sims = []
     gold_geography: List[float] = []
     gold_entities: List[float] = []
@@ -22,7 +30,6 @@ def main():
     gold_style: List[float] = []
     gold_tone: List[float] = []
 
-    dataset = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
     for pair in dataset:
         embeddings = model.encode([pair.article_1.text, pair.article_2.text], convert_to_tensor=True)
         sim = cosine_similarity(embeddings[0], embeddings[1], dim=0)
@@ -44,11 +51,10 @@ def main():
         torch.tensor(gold_style),
         torch.tensor(gold_tone),
     ))
-    print("Scipy stats", pearsonr(gold_time, gold_geography))
-    print(similiarities.shape)
     corrs = torch.corrcoef(similiarities)
     df = pd.DataFrame(corrs, columns=["predict"] + DIMENSIONS, index=["predict"] + DIMENSIONS)
     df = df[["predict", "GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"]].reindex(["predict", "GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"])
+    print(f"Stats for {model_name}")
     print(df)
 
         
