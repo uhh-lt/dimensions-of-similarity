@@ -2,9 +2,10 @@ from torch.utils.data.dataset import Dataset
 from dataclasses import dataclass
 import json
 import csv
-from typing import Dict, Union, Optional
+from typing import Tuple, List, Dict, Union, Optional
 from pathlib import Path
 import glob
+import random
 
 DIMENSIONS = ["GEO", "ENT", "TIME", "NAR", "Overall", "STYLE", "TONE"]
 DIMENSIONS_LONG = ["Geography", "Entities", "Time", "Narrative", "Overall", "Style", "Tone"]
@@ -93,6 +94,12 @@ class SemEvalDataset(Dataset):
 
     def __getitem__(self, i: int) -> ArticlePair:
         return self.article_pairs[i]
+    
+    def random_split(self, percent: float) -> Tuple[List[ArticlePair], List[ArticlePair]]:
+        pairs = self.article_pairs.copy()
+        random.shuffle(pairs)
+        split = int(percent * len(pairs))
+        return pairs[:split], pairs[split:]
 
 
 def main():

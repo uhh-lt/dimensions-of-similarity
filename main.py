@@ -4,7 +4,7 @@ import torch
 import pandas as pd
 from sentence_transformers import SentenceTransformer, InputExample, losses
 from sentence_transformers.util import cos_sim
-from dos.dataset import SemEvalDataset, DIMENSIONS
+from dos.dataset import SemEvalDataset, DIMENSIONS, ArticlePair
 from torch.utils.data import DataLoader
 from torch.nn.functional import cosine_similarity
 
@@ -16,11 +16,12 @@ models = ["bert-base-multilingual-cased", "sentence-transformers/stsb-xlm-r-mult
 
 def main():
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
+    train, dev = dataset.random_split(0.8)
     for model_name in models:
         try:
             model = SentenceTransformer(model_name)
-            finetune_model(model, dataset)
-            eval_model(model, dataset, model_name)
+            finetune_model(model, train)
+            eval_model(model, dev, model_name)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -28,14 +29,14 @@ def main():
 def normalize_score(one2four: float):
     return 1 - 2 * (one2four - 1) / 3
 
-def finetune_model(model: SentenceTransformer, dataset: SemEvalDataset):
+def finetune_model(model: SentenceTransformer, dataset: List[ArticlePair]):
     training_data: List[InputExample] = [InputExample(
         texts=[pair.article_1.text, pair.article_2.text], label=normalize_score(pair.overall)) for pair in dataset]
     train_dataloader = DataLoader(training_data, shuffle=True, batch_size=32)
     train_loss = losses.CosineSimilarityLoss(model)
     model.fit(train_objectives=[(train_dataloader, train_loss)], epochs=1, warmup_steps=100)
 
-def eval_model(model: SentenceTransformer, dataset: SemEvalDataset, model_name: str):
+def eval_model(model: SentenceTransformer, dataset: List[ArticlePair], model_name: str):
     sims = []
     gold_geography: List[float] = []
     gold_entities: List[float] = []
