@@ -53,7 +53,7 @@ class SemEvalDataset(Dataset):
         self.article_pairs = list(self.load_csv(csv_path))
 
     def load_csv(self, csv_path):
-        reader = csv.DictReader(open(csv_path))
+        reader = csv.DictReader(open(csv_path, encoding="utf-8"))
         i = 0
         for data in reader:
             # if i > 200:
