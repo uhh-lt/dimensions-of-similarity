@@ -47,8 +47,9 @@ class ArticlePair():
 
 
 class SemEvalDataset(Dataset):
-    def __init__(self, csv_path: Path, json_path: Path):
+    def __init__(self, csv_path: Path, json_path: Path, langs: Union[List[str], str] = "all"):
         self.json_path = json_path
+        self.langs = langs
         self.article_pairs = list(self.load_csv(csv_path))
 
     def load_csv(self, csv_path):
@@ -72,8 +73,8 @@ class SemEvalDataset(Dataset):
                 converted[new_name] = converted[old_name]
                 del converted[old_name]
             pair = ArticlePair(**converted, article_1=None, article_2=None)
-            # if pair.url1_lang != "en" or pair.url2_lang != "en":
-            #     continue
+            if self.langs != all and (pair.url1_lang not in self.langs or pair.url2_lang not in self.langs):
+                continue
             try:
                 pair.article_1 = self.get_article_by_id(pair.id_1)
                 pair.article_2 = self.get_article_by_id(pair.id_2)
@@ -89,12 +90,15 @@ class SemEvalDataset(Dataset):
         elif len(file_list) == 0:
             raise ValueError(f"No articles with id {article_id}")
         else:
-            data = json.load(open(file_list[0]))
+            data = json.load(open(file_list[0], encoding="utf-8"))
             return Article(text=data["text"], title=data["title"], publish_date=data["publish_date"])
 
     def __getitem__(self, i: int) -> ArticlePair:
         return self.article_pairs[i]
-    
+
+    def __len__(self) -> int:
+        return len(self.article_pairs)
+
     def random_split(self, percent: float) -> Tuple[List[ArticlePair], List[ArticlePair]]:
         pairs = self.article_pairs.copy()
         random.shuffle(pairs)
