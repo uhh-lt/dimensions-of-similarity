@@ -73,7 +73,7 @@ class SemEvalDataset(Dataset):
                 converted[new_name] = converted[old_name]
                 del converted[old_name]
             pair = ArticlePair(**converted, article_1=None, article_2=None)
-            if self.langs != all and (pair.url1_lang not in self.langs or pair.url2_lang not in self.langs):
+            if self.langs != "all" and (pair.url1_lang not in self.langs or pair.url2_lang not in self.langs):
                 continue
             try:
                 pair.article_1 = self.get_article_by_id(pair.id_1)
