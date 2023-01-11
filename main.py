@@ -126,6 +126,7 @@ def multitask():
     for model_name in models:
         try:
             model = SentenceTransformer(model_name)
+            model.max_seq_length = 512
             evaluator.model_name = model_name
             finetune_model(model, training_inputs, evaluator)
         except Exception as e:
