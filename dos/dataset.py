@@ -13,9 +13,13 @@ DIMENSIONS_LONG = ["Geography", "Entities", "Time", "Narrative", "Overall", "Sty
 
 @dataclass
 class Article():
-    text: str
+    body: str
     title: str
     publish_date: str
+
+    @property
+    def text(self) -> str:
+        return ' '.join((self.title, self.body))
 
 
 @dataclass
@@ -91,7 +95,7 @@ class SemEvalDataset(Dataset):
             raise ValueError(f"No articles with id {article_id}")
         else:
             data = json.load(open(file_list[0], encoding="utf-8"))
-            return Article(text=data["text"], title=data["title"], publish_date=data["publish_date"])
+            return Article(body=data["text"], title=data["title"], publish_date=data["publish_date"])
 
     def __getitem__(self, i: int) -> ArticlePair:
         return self.article_pairs[i]
