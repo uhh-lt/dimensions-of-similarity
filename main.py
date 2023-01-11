@@ -17,13 +17,14 @@ from dos.evaluator import CorrelationEvaluator
 from dos.dataset import SemEvalDataset, ArticlePair
 from torch.utils.data import DataLoader
 
+from dos.multitask_evaluator import MultitaskCorrelationEvaluator
+
 pd.set_option('display.precision', 2)
 
 models = ["bert-base-multilingual-cased", "sentence-transformers/stsb-xlm-r-multilingual",
           "sentence-transformers/LaBSE", "all-MiniLM-L6-v2", "all-mpnet-base-v2"]
 
 app = typer.Typer()
-
 
 nlp = spacy.load("en_core_web_lg")
 
@@ -34,7 +35,9 @@ def extract_embeddings(text, embedder, word_filter):
         if word_filter(token):
             yield token.vector, embedder.get_word_vector(token.text)
 
+
 KNOWN_NER_TAGS = 'ORDINAL', 'GPE', 'LOC', 'MONEY', 'CARDINAL', 'QUANTITY', 'LAW', 'DATE', 'NORP', 'EVENT', 'LANGUAGE', 'ORG', 'PERSON', 'TIME', 'PRODUCT', 'PERCENT', 'FAC', 'WORK_OF_ART'
+
 
 class WordKind(Enum):
     ENTS = "entities"
@@ -119,7 +122,7 @@ def multitask():
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
     train, dev = dataset.random_split(0.8)
     training_inputs = make_multitask_training_data(train)
-    evaluator = CorrelationEvaluator(dev)
+    evaluator = MultitaskCorrelationEvaluator(dev)
     for model_name in models:
         try:
             model = SentenceTransformer(model_name)
@@ -174,7 +177,8 @@ def make_training_data(data: List[ArticlePair]) -> List[InputExample]:
     return inputs
 
 
-def finetune_model(model: SentenceTransformer, inputs: List[InputExample], evaluator: CorrelationEvaluator):
+def finetune_model(model: SentenceTransformer, inputs: List[InputExample],
+                   evaluator: CorrelationEvaluator | MultitaskCorrelationEvaluator):
     dataloader = DataLoader(inputs, shuffle=True, batch_size=16)
     loss = losses.CosineSimilarityLoss(model)
     model.fit(train_objectives=[(dataloader, loss)], epochs=3, warmup_steps=100, evaluator=evaluator, use_amp=True, output_path="models")
