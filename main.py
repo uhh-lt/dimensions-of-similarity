@@ -19,10 +19,15 @@ from torch.utils.data import DataLoader
 
 from dos.multitask_evaluator import MultitaskCorrelationEvaluator
 
-pd.set_option('display.precision', 2)
+pd.set_option("display.precision", 2)
 
-models = ["bert-base-multilingual-cased", "sentence-transformers/stsb-xlm-r-multilingual",
-          "sentence-transformers/LaBSE", "all-MiniLM-L6-v2", "all-mpnet-base-v2"]
+models = [
+    "bert-base-multilingual-cased",
+    "sentence-transformers/stsb-xlm-r-multilingual",
+    "sentence-transformers/LaBSE",
+    "all-MiniLM-L6-v2",
+    "all-mpnet-base-v2",
+]
 
 app = typer.Typer()
 
@@ -36,7 +41,26 @@ def extract_embeddings(text, embedder, word_filter):
             yield token.vector, embedder.get_word_vector(token.text)
 
 
-KNOWN_NER_TAGS = 'ORDINAL', 'GPE', 'LOC', 'MONEY', 'CARDINAL', 'QUANTITY', 'LAW', 'DATE', 'NORP', 'EVENT', 'LANGUAGE', 'ORG', 'PERSON', 'TIME', 'PRODUCT', 'PERCENT', 'FAC', 'WORK_OF_ART'
+KNOWN_NER_TAGS = (
+    "ORDINAL",
+    "GPE",
+    "LOC",
+    "MONEY",
+    "CARDINAL",
+    "QUANTITY",
+    "LAW",
+    "DATE",
+    "NORP",
+    "EVENT",
+    "LANGUAGE",
+    "ORG",
+    "PERSON",
+    "TIME",
+    "PRODUCT",
+    "PERCENT",
+    "FAC",
+    "WORK_OF_ART",
+)
 
 
 class WordKind(Enum):
@@ -53,8 +77,16 @@ class WordKind(Enum):
         elif self == WordKind.VERB:
             return lambda token: token.pos_ == "VERB"
         elif self == WordKind.ENTS:
-            return lambda token: token.ent_type_ in ["ORG", "PERSON", "GPE", "LOC", "LANGUAGE", "PRODUCT",
-                                                     "WORK_OF_ART", "FAC"]
+            return lambda token: token.ent_type_ in [
+                "ORG",
+                "PERSON",
+                "GPE",
+                "LOC",
+                "LANGUAGE",
+                "PRODUCT",
+                "WORK_OF_ART",
+                "FAC",
+            ]
         elif self == WordKind.ALL_NER:
             return lambda token: token.ent_type_ != ""
         elif self == WordKind.TIME:
@@ -77,16 +109,27 @@ class DataSubset(Enum):
 
 
 @app.command(name="fasttext")
-def fasttext_similarity(limit: Optional[int] = None, split: str = "test", embeddings: str = "cc.en.300.bin",
-                        kind: WordKind = WordKind.ALL, subset: DataSubset = "en"):
+def fasttext_similarity(
+    limit: Optional[int] = None,
+    split: str = "test",
+    embeddings: str = "cc.en.300.bin",
+    kind: WordKind = WordKind.ALL,
+    subset: DataSubset = "en",
+):
     current_dataset = None
     if split == "test":
-        test = SemEvalDataset(Path("data/eval.csv"), subset.get_data_path("eval"),
-                              langs=["en"] if subset == subset.EN else "all")
+        test = SemEvalDataset(
+            Path("data/eval.csv"),
+            subset.get_data_path("eval"),
+            langs=["en"] if subset == subset.EN else "all",
+        )
         current_dataset = test
     elif split == "train":
-        train = SemEvalDataset(Path("data/train.csv"), subset.get_data_path("train"),
-                               langs=["en"] if subset == subset.EN else "all")
+        train = SemEvalDataset(
+            Path("data/train.csv"),
+            subset.get_data_path("train"),
+            langs=["en"] if subset == subset.EN else "all",
+        )
         current_dataset = train
     else:
         raise ValueError("Invalid split")
@@ -94,10 +137,18 @@ def fasttext_similarity(limit: Optional[int] = None, split: str = "test", embedd
     predicted_sims = []
     gold_sims = defaultdict(list)
     for pair, i in zip(current_dataset, range(limit) if limit is not None else count()):
-        verbs_a = [fasttext_emb for spacy_emb, fasttext_emb in
-                   extract_embeddings(pair.article_1.text, embedder, kind.get_filter())]
-        verbs_b = [fasttext_emb for spacy_emb, fasttext_emb in
-                   extract_embeddings(pair.article_2.text, embedder, kind.get_filter())]
+        verbs_a = [
+            fasttext_emb
+            for spacy_emb, fasttext_emb in extract_embeddings(
+                pair.article_1.text, embedder, kind.get_filter()
+            )
+        ]
+        verbs_b = [
+            fasttext_emb
+            for spacy_emb, fasttext_emb in extract_embeddings(
+                pair.article_2.text, embedder, kind.get_filter()
+            )
+        ]
         if len(verbs_a) == 0 or len(verbs_b) == 0:
             continue
         verbs_a_stacked = np.stack(verbs_a)
@@ -105,13 +156,21 @@ def fasttext_similarity(limit: Optional[int] = None, split: str = "test", embedd
         sim = cos_sim(verbs_a_stacked, verbs_b_stacked)
         sim.fill_diagonal_(0)
         predicted_sims.append(sim.max(0).values.mean() + sim.max(1).values.mean())
-        for key, value in [("Geography", pair.geography), ("Entities", pair.entities), ("Time", pair.time),
-                           ("Narrative", pair.narrative), ("Overall", pair.overall), ("Style", pair.style),
-                           ("Tone", pair.tone)]:
+        for key, value in [
+            ("Geography", pair.geography),
+            ("Entities", pair.entities),
+            ("Time", pair.time),
+            ("Narrative", pair.narrative),
+            ("Overall", pair.overall),
+            ("Style", pair.style),
+            ("Tone", pair.tone),
+        ]:
             gold_sims[key].append(value)
     correlations = {}
     for key, gold_values in gold_sims.items():
-        correlations[key] = torch.corrcoef(torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)]))
+        correlations[key] = torch.corrcoef(
+            torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)])
+        )
     print("#### Only considering", kind, "on", subset)
     for key, corrs in correlations.items():
         print(f"{key} correlation {-corrs[0, 1].item():.2f}")
@@ -120,15 +179,20 @@ def fasttext_similarity(limit: Optional[int] = None, split: str = "test", embedd
 @app.command(name="multitask")
 def multitask():
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
+    test = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
     train, dev = dataset.random_split(0.8)
     training_inputs = make_multitask_training_data(train)
-    evaluator = MultitaskCorrelationEvaluator(dev)
+    dev_evaluator = MultitaskCorrelationEvaluator(dev)
+    test_evaluator = MultitaskCorrelationEvaluator(test)
     for model_name in models:
         try:
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
-            evaluator.model_name = model_name
-            finetune_model(model, training_inputs, evaluator)
+            dev_evaluator.model_name = model_name
+            dev_evaluator(model)
+            model.fit()
+            finetune_model(model, training_inputs, dev_evaluator)
+            test_evaluator(model)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -138,11 +202,24 @@ def make_multitask_training_data(data: List[ArticlePair]) -> List[InputExample]:
     inputs: List[InputExample] = []
     for pair in data:
         pair_dict = dataclasses.asdict(pair)
-        for dimension in ['geography', 'entities', 'time', 'narrative', 'overall', 'style', 'tone']:
+        for dimension in [
+            "geography",
+            "entities",
+            "time",
+            "narrative",
+            "overall",
+            "style",
+            "tone",
+        ]:
             inputs.append(
                 InputExample(
-                    texts=[f"{dimension}: {pair.article_1.text}", f"{dimension}: {pair.article_2.text}"],
-                    label=normalize_score_01(pair_dict[dimension])))
+                    texts=[
+                        f"{dimension}: {pair.article_1.text}",
+                        f"{dimension}: {pair.article_2.text}",
+                    ],
+                    label=normalize_score_01(pair_dict[dimension]),
+                )
+            )
     return inputs
 
 
@@ -160,7 +237,7 @@ def main():
             model.max_seq_length = 512
             dev_evaluator.model_name = model_name
             finetune_model(model, training_inputs, dev_evaluator)
-            #test_evaluator(model)
+            # test_evaluator(model)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -169,20 +246,37 @@ def main():
 def normalize_score(one2four: float):
     return 1 - 2 * (one2four - 1) / 3
 
+
 def normalize_score_01(one2four: float):
     return ((1 - 2 * (one2four - 1) / 3) + 1) / 2
 
+
 def make_training_data(data: List[ArticlePair]) -> List[InputExample]:
-    inputs: List[InputExample] = [InputExample(
-        texts=[pair.article_1.text, pair.article_2.text], label=normalize_score_01(pair.overall)) for pair in data]
+    inputs: List[InputExample] = [
+        InputExample(
+            texts=[pair.article_1.text, pair.article_2.text],
+            label=normalize_score_01(pair.overall),
+        )
+        for pair in data
+    ]
     return inputs
 
 
-def finetune_model(model: SentenceTransformer, inputs: List[InputExample],
-                   evaluator: CorrelationEvaluator | MultitaskCorrelationEvaluator):
+def finetune_model(
+    model: SentenceTransformer,
+    inputs: List[InputExample],
+    evaluator: CorrelationEvaluator | MultitaskCorrelationEvaluator,
+):
     dataloader = DataLoader(inputs, shuffle=True, batch_size=16)
     loss = losses.CosineSimilarityLoss(model)
-    model.fit(train_objectives=[(dataloader, loss)], epochs=3, warmup_steps=100, evaluator=evaluator, use_amp=True, output_path="models")
+    model.fit(
+        train_objectives=[(dataloader, loss)],
+        epochs=3,
+        warmup_steps=100,
+        evaluator=evaluator,
+        use_amp=True,
+        output_path="models",
+    )
 
 
 if __name__ == "__main__":
