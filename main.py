@@ -142,7 +142,7 @@ def make_multitask_training_data(data: List[ArticlePair]) -> List[InputExample]:
             inputs.append(
                 InputExample(
                     texts=[f"{dimension}: {pair.article_1.text}", f"{dimension}: {pair.article_2.text}"],
-                    label=normalize_score(pair_dict[dimension])))
+                    label=normalize_score_01(pair_dict[dimension])))
     return inputs
 
 
