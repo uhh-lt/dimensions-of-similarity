@@ -189,8 +189,10 @@ def multitask():
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
             dev_evaluator.model_name = model_name
+            print("Dev set untrained:")
             dev_evaluator(model)
-            model.fit()
+            print("Test set untrained:")
+            test_evaluator(model)
             finetune_model(model, training_inputs, dev_evaluator)
             test_evaluator(model)
         except Exception as e:
