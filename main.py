@@ -1,4 +1,3 @@
-import dataclasses
 from pathlib import Path
 from typing import List
 import pandas as pd
@@ -9,29 +8,28 @@ from typing import Optional
 from collections import defaultdict
 import fasttext
 import torch
-import spacy
 import numpy as np
 from sentence_transformers.util import cos_sim
-from sentence_transformers import SentenceTransformer, InputExample, losses
+from sentence_transformers import SentenceTransformer, InputExample, losses, models
 from dos.evaluator import CorrelationEvaluator
 from dos.dataset import SemEvalDataset, ArticlePair
 from torch.utils.data import DataLoader
+from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
 
 from dos.multitask_evaluator import MultitaskCorrelationEvaluator
+from dos.reshape_normalize_layer import ReshapeAndNormalize
+
+from torch import nn
 
 pd.set_option("display.precision", 2)
 
-models = [
-    "bert-base-multilingual-cased",
-    "sentence-transformers/stsb-xlm-r-multilingual",
+train_models = [
     "sentence-transformers/LaBSE",
-    "all-MiniLM-L6-v2",
-    "all-mpnet-base-v2",
 ]
 
 app = typer.Typer()
 
-nlp = spacy.load("en_core_web_lg")
+# nlp = spacy.load("en_core_web_lg")
 
 
 def extract_embeddings(text, embedder, word_filter):
@@ -176,6 +174,27 @@ def fasttext_similarity(
         print(f"{key} correlation {-corrs[0, 1].item():.2f}")
 
 
+def make_multitask_training_data(
+    data: List[ArticlePair],
+) -> List[InputExampleWithMultipleLabels]:
+    inputs: List[InputExample] = [
+        InputExampleWithMultipleLabels(
+            texts=[pair.article_1.text, pair.article_2.text],
+            label=[
+                normalize_score_01(pair.geography),
+                normalize_score_01(pair.entities),
+                normalize_score_01(pair.time),
+                normalize_score_01(pair.narrative),
+                normalize_score_01(pair.overall),
+                normalize_score_01(pair.style),
+                normalize_score_01(pair.tone),
+            ],
+        )
+        for pair in data
+    ]
+    return inputs
+
+
 @app.command(name="multitask")
 def multitask():
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
@@ -184,45 +203,29 @@ def multitask():
     training_inputs = make_multitask_training_data(train)
     dev_evaluator = MultitaskCorrelationEvaluator(dev)
     test_evaluator = MultitaskCorrelationEvaluator(test)
-    for model_name in models:
+    for model_name in train_models:
         try:
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
-            dev_evaluator.model_name = model_name
-            print("Dev set untrained:")
-            dev_evaluator(model)
-            print("Test set untrained:")
+
+            # extend model
+            model.add_module(
+                "3",
+                models.Dense(
+                    in_features=768, out_features=512 * 7, activation_function=nn.Tanh()
+                ),
+            )
+            model.add_module("4", ReshapeAndNormalize(num_labels=7))
+
             test_evaluator(model)
+
+            dev_evaluator.model_name = model_name
+            test_evaluator.model_name = model_name
             finetune_model(model, training_inputs, dev_evaluator)
             test_evaluator(model)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
-
-
-def make_multitask_training_data(data: List[ArticlePair]) -> List[InputExample]:
-    inputs: List[InputExample] = []
-    for pair in data:
-        pair_dict = dataclasses.asdict(pair)
-        for dimension in [
-            "geography",
-            "entities",
-            "time",
-            "narrative",
-            "overall",
-            "style",
-            "tone",
-        ]:
-            inputs.append(
-                InputExample(
-                    texts=[
-                        f"{dimension}: {pair.article_1.text}",
-                        f"{dimension}: {pair.article_2.text}",
-                    ],
-                    label=normalize_score_01(pair_dict[dimension]),
-                )
-            )
-    return inputs
 
 
 @app.command()
@@ -233,13 +236,13 @@ def main():
     training_inputs = make_training_data(train)
     dev_evaluator = CorrelationEvaluator(dev)
     test_evaluator = CorrelationEvaluator(test)
-    for model_name in models:
+    for model_name in train_models:
         try:
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
             dev_evaluator.model_name = model_name
             finetune_model(model, training_inputs, dev_evaluator)
-            # test_evaluator(model)
+            test_evaluator(model)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
