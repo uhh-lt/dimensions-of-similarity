@@ -1,22 +1,22 @@
 import dataclasses
-from pathlib import Path
-from typing import List
-import pandas as pd
-from itertools import count
-import typer
-from enum import Enum
-from typing import Optional
 from collections import defaultdict
+from enum import Enum
+from itertools import count
+from pathlib import Path
+from typing import List, Optional
+
 import fasttext
-import torch
-import spacy
 import numpy as np
+import pandas as pd
+import spacy
+import torch
+import typer
+from sentence_transformers import InputExample, SentenceTransformer, losses
 from sentence_transformers.util import cos_sim
-from sentence_transformers import SentenceTransformer, InputExample, losses
-from dos.evaluator import CorrelationEvaluator
-from dos.dataset import SemEvalDataset, ArticlePair
 from torch.utils.data import DataLoader
 
+from dos.dataset import ArticlePair, SemEvalDataset
+from dos.evaluator import CorrelationEvaluator
 from dos.multitask_evaluator import MultitaskCorrelationEvaluator
 
 pd.set_option("display.precision", 2)
@@ -28,10 +28,11 @@ models = [
     "all-MiniLM-L6-v2",
     "all-mpnet-base-v2",
 ]
+models = ["sentence-transformers/LaBSE"]
 
 app = typer.Typer()
 
-nlp = spacy.load("en_core_web_lg")
+# nlp = spacy.load("en_core_web_lg")
 
 
 def extract_embeddings(text, embedder, word_filter):
@@ -186,9 +187,34 @@ def multitask():
     test_evaluator = MultitaskCorrelationEvaluator(test)
     for model_name in models:
         try:
+            # load model
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
+
+            # add custom tokens to model
+            word_embedding_model = model._first_module()
+            tokens = [
+                f"<{dim}>"
+                for dim in [
+                    "geography",
+                    "entities",
+                    "time",
+                    "narrative",
+                    "overall",
+                    "style",
+                    "tone",
+                ]
+            ]
+            word_embedding_model.tokenizer.add_tokens(tokens, special_tokens=True)
+            word_embedding_model.auto_model.resize_token_embeddings(
+                len(word_embedding_model.tokenizer)
+            )
+
+            # init evaluators
             dev_evaluator.model_name = model_name
+            test_evaluator.model_name = model_name
+
+            # the loop:
             print("Dev set untrained:")
             dev_evaluator(model)
             print("Test set untrained:")
@@ -216,8 +242,8 @@ def make_multitask_training_data(data: List[ArticlePair]) -> List[InputExample]:
             inputs.append(
                 InputExample(
                     texts=[
-                        f"{dimension}: {pair.article_1.text}",
-                        f"{dimension}: {pair.article_2.text}",
+                        f"<{dimension}>: {pair.article_1.text}",
+                        f"<{dimension}>: {pair.article_2.text}",
                     ],
                     label=normalize_score_01(pair_dict[dimension]),
                 )
@@ -269,11 +295,11 @@ def finetune_model(
     inputs: List[InputExample],
     evaluator: CorrelationEvaluator | MultitaskCorrelationEvaluator,
 ):
-    dataloader = DataLoader(inputs, shuffle=True, batch_size=16)
+    dataloader = DataLoader(inputs, shuffle=True, batch_size=32)
     loss = losses.CosineSimilarityLoss(model)
     model.fit(
         train_objectives=[(dataloader, loss)],
-        epochs=3,
+        epochs=1,
         warmup_steps=100,
         evaluator=evaluator,
         use_amp=True,
