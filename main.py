@@ -11,6 +11,7 @@ import torch
 import numpy as np
 from sentence_transformers.util import cos_sim
 from sentence_transformers import SentenceTransformer, InputExample, losses, models
+from dos.cosine_loss_multiple_labels import CosineSimilarityLossForMultipleLabels
 from dos.evaluator import CorrelationEvaluator
 from dos.dataset import SemEvalDataset, ArticlePair
 from torch.utils.data import DataLoader
@@ -221,11 +222,28 @@ def multitask():
 
             dev_evaluator.model_name = model_name
             test_evaluator.model_name = model_name
-            finetune_model(model, training_inputs, dev_evaluator)
+            finetune_multitask_model(model, training_inputs, dev_evaluator)
             test_evaluator(model)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
+
+
+def finetune_multitask_model(
+    model: SentenceTransformer,
+    inputs: List[InputExample],
+    evaluator: CorrelationEvaluator | MultitaskCorrelationEvaluator,
+):
+    dataloader = DataLoader(inputs, shuffle=True, batch_size=16)
+    loss = CosineSimilarityLossForMultipleLabels(model)
+    model.fit(
+        train_objectives=[(dataloader, loss)],
+        epochs=3,
+        warmup_steps=100,
+        evaluator=evaluator,
+        use_amp=True,
+        output_path="models",
+    )
 
 
 @app.command()
