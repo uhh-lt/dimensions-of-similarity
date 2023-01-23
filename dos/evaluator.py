@@ -65,6 +65,7 @@ class CorrelationEvaluator(CorrelationEvaluatorBase):
 
 class MultitaskPromptCorrelationEvaluator(CorrelationEvaluatorBase):
     def __init__(self, dataset: List[ArticlePair]):
+        super().__init__(dataset)
         self.dimensions = ["geography", "entities", "time", "narrative", "overall", "style", "tone"]
         self.article1 = {dimension: [] for dimension in self.dimensions}
         self.article2 = {dimension: [] for dimension in self.dimensions}
@@ -114,6 +115,7 @@ class MultitaskPromptCorrelationEvaluator(CorrelationEvaluatorBase):
 
 class MultitaskHeadCorrelationEvaluator(CorrelationEvaluatorBase):
     def __init__(self, dataset: List[ArticlePair]):
+        super().__init__(dataset)
         self.dimensions = ["geography", "entities", "time", "narrative", "overall", "style", "tone"]
         self.article1 = [pair.article_1.text for pair in dataset]
         self.article2 = [pair.article_2.text for pair in dataset]

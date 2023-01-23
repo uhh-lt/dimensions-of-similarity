@@ -11,7 +11,7 @@ import pandas as pd
 import spacy
 import torch
 import typer
-from sentence_transformers import InputExample, SentenceTransformer, losses
+from sentence_transformers import InputExample, SentenceTransformer, losses, models
 from sentence_transformers.util import cos_sim
 from torch.utils.data import DataLoader
 from torch import nn
@@ -253,14 +253,14 @@ def multitask_head():
     dev_evaluator = MultitaskHeadCorrelationEvaluator(dev)
     test_evaluator = MultitaskHeadCorrelationEvaluator(test)
     model_name = "sentence-transformers/LaBSE"
-    for out_features in [16, 32, 64, 128, 256, 512, 768] in train_models:
+    for out_features in [16, 32, 64, 128, 256, 512, 768]:
         try:
             # init model
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
             model.add_module(
                 "3",
-                train_models.Dense(in_features=768, out_features=out_features * 7, activation_function=nn.Tanh()),
+                models.Dense(in_features=768, out_features=out_features * 7, activation_function=nn.Tanh()),
             )
             model.add_module("4", ReshapeAndNormalize(num_labels=7))
             dev_evaluator.model_name = model_name
