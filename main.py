@@ -1,27 +1,30 @@
 import dataclasses
-from pathlib import Path
-from typing import List
-import pandas as pd
-from itertools import count
-import typer
-from enum import Enum
-from typing import Optional
 from collections import defaultdict
-import fasttext
-import torch
-import spacy
-import numpy as np
-from sentence_transformers.util import cos_sim
-from sentence_transformers import SentenceTransformer, InputExample, losses
-from dos.evaluator import CorrelationEvaluator
-from dos.dataset import SemEvalDataset, ArticlePair
-from torch.utils.data import DataLoader
+from enum import Enum
+from itertools import count
+from pathlib import Path
+from typing import List, Optional
 
-from dos.multitask_evaluator import MultitaskCorrelationEvaluator
+import fasttext
+import numpy as np
+import pandas as pd
+import spacy
+import torch
+import typer
+from sentence_transformers import InputExample, SentenceTransformer, losses
+from sentence_transformers.util import cos_sim
+from torch.utils.data import DataLoader
+from torch import nn
+from dos.cosine_loss_multiple_labels import CosineSimilarityLossForMultipleLabels
+
+from dos.dataset import ArticlePair, SemEvalDataset
+from dos.evaluator import CorrelationEvaluator, MultitaskPromptCorrelationEvaluator, MultitaskHeadCorrelationEvaluator
+from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
+from dos.reshape_normalize_layer import ReshapeAndNormalize
 
 pd.set_option("display.precision", 2)
 
-models = [
+train_models = [
     "bert-base-multilingual-cased",
     "sentence-transformers/stsb-xlm-r-multilingual",
     "sentence-transformers/LaBSE",
@@ -139,15 +142,11 @@ def fasttext_similarity(
     for pair, i in zip(current_dataset, range(limit) if limit is not None else count()):
         verbs_a = [
             fasttext_emb
-            for spacy_emb, fasttext_emb in extract_embeddings(
-                pair.article_1.text, embedder, kind.get_filter()
-            )
+            for spacy_emb, fasttext_emb in extract_embeddings(pair.article_1.text, embedder, kind.get_filter())
         ]
         verbs_b = [
             fasttext_emb
-            for spacy_emb, fasttext_emb in extract_embeddings(
-                pair.article_2.text, embedder, kind.get_filter()
-            )
+            for spacy_emb, fasttext_emb in extract_embeddings(pair.article_2.text, embedder, kind.get_filter())
         ]
         if len(verbs_a) == 0 or len(verbs_b) == 0:
             continue
@@ -168,39 +167,48 @@ def fasttext_similarity(
             gold_sims[key].append(value)
     correlations = {}
     for key, gold_values in gold_sims.items():
-        correlations[key] = torch.corrcoef(
-            torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)])
-        )
+        correlations[key] = torch.corrcoef(torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)]))
     print("#### Only considering", kind, "on", subset)
     for key, corrs in correlations.items():
         print(f"{key} correlation {-corrs[0, 1].item():.2f}")
 
 
-@app.command(name="multitask")
-def multitask():
+@app.command(name="multitask-prompt")
+def multitask_prompt():
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
     test = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
     train, dev = dataset.random_split(0.8)
-    training_inputs = make_multitask_training_data(train)
-    dev_evaluator = MultitaskCorrelationEvaluator(dev)
-    test_evaluator = MultitaskCorrelationEvaluator(test)
-    for model_name in models:
+    training_inputs = make_multitask_prompt_training_data(train)
+    dev_evaluator = MultitaskPromptCorrelationEvaluator(dev)
+    test_evaluator = MultitaskPromptCorrelationEvaluator(test)
+    for model_name in train_models:
         try:
+            # init model
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
             dev_evaluator.model_name = model_name
+            test_evaluator.model_name = model_name
+
+            # eval untrained model on dev
             print("Dev set untrained:")
             dev_evaluator(model)
+
+            # eval untrained model on test
             print("Test set untrained:")
             test_evaluator(model)
-            finetune_model(model, training_inputs, dev_evaluator)
+
+            # finetune model on train (& eval on dev)
+            finetune_model(model, training_inputs, dev_evaluator, loss_fcn=losses.CosineSimilarityLoss)
+
+            # eval finetuned model on test
+            print("Test set finetuned:")
             test_evaluator(model)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
 
 
-def make_multitask_training_data(data: List[ArticlePair]) -> List[InputExample]:
+def make_multitask_prompt_training_data(data: List[ArticlePair]) -> List[InputExample]:
     inputs: List[InputExample] = []
     for pair in data:
         pair_dict = dataclasses.asdict(pair)
@@ -225,6 +233,66 @@ def make_multitask_training_data(data: List[ArticlePair]) -> List[InputExample]:
     return inputs
 
 
+@app.command(name="multitask-head")
+def multitask_head():
+    dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
+    test = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
+    train, dev = dataset.random_split(0.8)
+    training_inputs = make_multitask_head_training_data(train)
+    dev_evaluator = MultitaskHeadCorrelationEvaluator(dev)
+    test_evaluator = MultitaskHeadCorrelationEvaluator(test)
+    model_name = "sentence-transformers/LaBSE"
+    for out_features in [16, 32, 64, 128, 256, 512, 768] in train_models:
+        try:
+            # init model
+            model = SentenceTransformer(model_name)
+            model.max_seq_length = 512
+            model.add_module(
+                "3",
+                train_models.Dense(in_features=768, out_features=out_features * 7, activation_function=nn.Tanh()),
+            )
+            model.add_module("4", ReshapeAndNormalize(num_labels=7))
+            dev_evaluator.model_name = model_name
+            test_evaluator.model_name = model_name
+
+            # eval untrained model on dev
+            print("Dev set untrained:")
+            dev_evaluator(model)
+
+            # eval untrained model on test
+            print("Test set untrained:")
+            test_evaluator(model)
+
+            # finetune model on train (& eval on dev)
+            finetune_model(model, training_inputs, dev_evaluator, loss_fcn=CosineSimilarityLossForMultipleLabels)
+
+            # eval finetuned model on test
+            print("Test set finetuned:")
+            test_evaluator(model)
+        except Exception as e:
+            print("Error evaluating", model_name)
+            print(e)
+
+
+def make_multitask_head_training_data(data: List[ArticlePair]) -> List[InputExampleWithMultipleLabels]:
+    inputs: List[InputExample] = [
+        InputExampleWithMultipleLabels(
+            texts=[pair.article_1.text, pair.article_2.text],
+            label=[
+                normalize_score_01(pair.geography),
+                normalize_score_01(pair.entities),
+                normalize_score_01(pair.time),
+                normalize_score_01(pair.narrative),
+                normalize_score_01(pair.overall),
+                normalize_score_01(pair.style),
+                normalize_score_01(pair.tone),
+            ],
+        )
+        for pair in data
+    ]
+    return inputs
+
+
 @app.command()
 def main():
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
@@ -233,24 +301,30 @@ def main():
     training_inputs = make_training_data(train)
     dev_evaluator = CorrelationEvaluator(dev)
     test_evaluator = CorrelationEvaluator(test)
-    for model_name in models:
+    for model_name in train_models:
         try:
+            # init model
             model = SentenceTransformer(model_name)
             model.max_seq_length = 512
             dev_evaluator.model_name = model_name
-            finetune_model(model, training_inputs, dev_evaluator)
-            # test_evaluator(model)
+
+            # eval untrained model on dev
+            print("Dev set untrained:")
+            dev_evaluator(model)
+
+            # eval untrained model on test
+            print("Test set untrained:")
+            test_evaluator(model)
+
+            # finetune model on train (& eval on dev)
+            finetune_model(model, training_inputs, dev_evaluator, loss_fcn=losses.CosineSimilarityLoss)
+
+            # eval finetuned model on test
+            print("Test set finetuned:")
+            test_evaluator(model)
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
-
-
-def normalize_score(one2four: float):
-    return 1 - 2 * (one2four - 1) / 3
-
-
-def normalize_score_01(one2four: float):
-    return ((1 - 2 * (one2four - 1) / 3) + 1) / 2
 
 
 def make_training_data(data: List[ArticlePair]) -> List[InputExample]:
@@ -264,13 +338,22 @@ def make_training_data(data: List[ArticlePair]) -> List[InputExample]:
     return inputs
 
 
+def normalize_score(one2four: float):
+    return 1 - 2 * (one2four - 1) / 3
+
+
+def normalize_score_01(one2four: float):
+    return ((1 - 2 * (one2four - 1) / 3) + 1) / 2
+
+
 def finetune_model(
     model: SentenceTransformer,
     inputs: List[InputExample],
-    evaluator: CorrelationEvaluator | MultitaskCorrelationEvaluator,
+    evaluator: CorrelationEvaluator | MultitaskPromptCorrelationEvaluator | MultitaskHeadCorrelationEvaluator,
+    loss_fcn: nn.Module,
 ):
-    dataloader = DataLoader(inputs, shuffle=True, batch_size=16)
-    loss = losses.CosineSimilarityLoss(model)
+    dataloader = DataLoader(inputs, shuffle=True, batch_size=32)
+    loss = loss_fcn(model)
     model.fit(
         train_objectives=[(dataloader, loss)],
         epochs=3,
