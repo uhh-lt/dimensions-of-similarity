@@ -202,7 +202,18 @@ def multitask_prompt():
 
             # eval finetuned model on test
             print("Test set finetuned:")
-            test_evaluator(model)
+            test_evaluator(model, epoch=1)
+
+            # print results
+            print("Dev set results:")
+            dev_evaluator.print_results()
+            print("Test set results:")
+            test_evaluator.print_results()
+
+            # write results
+            model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
+            dev_evaluator.write_results(path=Path(f"multitask-prompt-{model_name_}-dev.csv"))
+            test_evaluator.write_results(path=Path(f"multitask-prompt-{model_name_}-test.csv"))
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -268,7 +279,17 @@ def multitask_head():
 
             # eval finetuned model on test
             print("Test set finetuned:")
-            test_evaluator(model)
+            test_evaluator(model, epoch=3)
+
+            # print results
+            print("Dev set results:")
+            dev_evaluator.print_results()
+            print("Test set results:")
+            test_evaluator.print_results()
+
+            # write results
+            dev_evaluator.write_results(path=Path(f"multitask-head-{out_features}-dev.csv"))
+            test_evaluator.write_results(path=Path(f"multitask-head-{out_features}-test.csv"))
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -322,6 +343,17 @@ def main():
             # eval finetuned model on test
             print("Test set finetuned:")
             test_evaluator(model)
+
+            # print results
+            print("Dev set results:")
+            dev_evaluator.print_results()
+            print("Test set results:")
+            test_evaluator.print_results()
+
+            # write results
+            model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
+            dev_evaluator.write_results(path=Path(f"finetuned-{model_name_}-dev.csv"))
+            test_evaluator.write_results(path=Path(f"finetuned-{model_name_}-test.csv"))
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
