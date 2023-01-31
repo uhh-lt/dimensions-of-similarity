@@ -21,6 +21,7 @@ from dos.dataset import ArticlePair, SemEvalDataset
 from dos.evaluator import CorrelationEvaluator, MultitaskPromptCorrelationEvaluator, MultitaskHeadCorrelationEvaluator
 from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
 from dos.reshape_normalize_layer import ReshapeAndNormalize
+from dos.reviews import ReviewDataset
 
 pd.set_option("display.precision", 2)
 
@@ -395,6 +396,21 @@ def finetune_model(
         use_amp=True,
         output_path="models",
     )
+
+
+@app.command()
+def reviews():
+    dataset = ReviewDataset("data/amazon_reviews/amazon_total.txt")
+    for product_id, reviews_group in dataset.grouped_by_product():
+        reviews = list(reviews_group)
+        print(
+            "Product",
+            product_id,
+            "with",
+            len(reviews),
+            "reviews and an average rating of",
+            sum(r.rating for r in reviews) / len(reviews)
+        )
 
 
 if __name__ == "__main__":
