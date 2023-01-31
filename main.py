@@ -102,10 +102,11 @@ class WordKind(Enum):
 
 class DataSubset(Enum):
     EN = "en"
+    DE = "de"
     ALL_TRANSLATED = "translated"
 
     def get_data_path(self, split):
-        if self == DataSubset.EN:
+        if self == DataSubset.EN or self == DataSubset.DE:
             return Path(f"data/{split}_data")
         elif self == DataSubset.ALL_TRANSLATED:
             return Path(f"data/{split}_data_translated")
