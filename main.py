@@ -11,6 +11,7 @@ import pandas as pd
 import spacy
 import torch
 import typer
+import random
 from sentence_transformers import InputExample, SentenceTransformer, losses, models
 from sentence_transformers.util import cos_sim
 from torch.utils.data import DataLoader
@@ -22,6 +23,10 @@ from dos.evaluator import CorrelationEvaluator, MultitaskPromptCorrelationEvalua
 from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
 from dos.reshape_normalize_layer import ReshapeAndNormalize
 from dos.reviews import ReviewDataset
+
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
 
 pd.set_option("display.precision", 2)
 
