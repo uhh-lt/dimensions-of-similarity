@@ -35,6 +35,7 @@ class CorrelationEvaluator(CorrelationEvaluatorBase):
         super().__init__(dataset)
         self.article1 = [pair.article_1.text for pair in dataset]
         self.article2 = [pair.article_2.text for pair in dataset]
+        self.score_column = 4
 
     def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1) -> float:
         embeddings1 = model.encode(self.article1, convert_to_tensor=True)
@@ -55,12 +56,15 @@ class CorrelationEvaluator(CorrelationEvaluatorBase):
         )
         corrs = torch.corrcoef(similiarities)[0, 1:]
         overall_score = corrs[4].item()
+        score = corrs[self.score_column].item()
 
         # save the correlations
         self.stats[epoch] = corrs
 
         print(f"Epoch {epoch} overall score: {overall_score}")
-        return overall_score
+        print(f"Epoch {epoch} custom score: {score}")
+
+        return score
 
 
 class MultitaskPromptCorrelationEvaluator(CorrelationEvaluatorBase):

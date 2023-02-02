@@ -26,11 +26,21 @@ from dos.reviews import ReviewDataset
 pd.set_option("display.precision", 2)
 
 train_models = [
-    "bert-base-multilingual-cased",
-    "sentence-transformers/stsb-xlm-r-multilingual",
+    # "bert-base-multilingual-cased",
+    # "sentence-transformers/stsb-xlm-r-multilingual",
     "sentence-transformers/LaBSE",
-    "all-MiniLM-L6-v2",
-    "all-mpnet-base-v2",
+    # "all-MiniLM-L6-v2",
+    # "all-mpnet-base-v2",
+]
+
+dimensions = [
+    "geography",
+    "entities",
+    "time",
+    "narrative",
+    "overall",
+    "style",
+    "tone",
 ]
 
 app = typer.Typer()
@@ -318,10 +328,12 @@ def make_multitask_head_training_data(data: List[ArticlePair]) -> List[InputExam
 
 @app.command()
 def main():
+    result_dir = "results"
+    Path(result_dir).mkdir(parents=True, exist_ok=True)
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
     test = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
     train, dev = dataset.random_split(0.8)
-    training_inputs = make_training_data(train)
+    training_inputs_per_dim = [make_training_data(train, dim) for dim in dimensions]
     dev_evaluator = CorrelationEvaluator(dev)
     test_evaluator = CorrelationEvaluator(test)
     for model_name in train_models:
@@ -331,6 +343,8 @@ def main():
             model.max_seq_length = 512
             dev_evaluator.model_name = model_name
 
+            model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
+
             # eval untrained model on dev
             print("Dev set untrained:")
             dev_evaluator(model)
@@ -339,33 +353,37 @@ def main():
             print("Test set untrained:")
             test_evaluator(model)
 
-            # finetune model on train (& eval on dev)
-            finetune_model(model, training_inputs, dev_evaluator, loss_fcn=losses.CosineSimilarityLoss)
+            # iterate dimensions to fine-tune on
+            for i, (dim, training_inputs) in enumerate(zip(dimensions, training_inputs_per_dim)):
+                dev_evaluator.score_column = i
 
-            # eval finetuned model on test
-            print("Test set finetuned:")
-            test_evaluator(model)
+                # finetune model on train (& eval on dev)
+                print(f"Fine-tuning model {model_name_} for dimension {dim}")
+                finetune_model(model, training_inputs, dev_evaluator, loss_fcn=losses.CosineSimilarityLoss, name=f"finetuned-{model_name_}-{dim}")
 
-            # print results
-            print("Dev set results:")
-            dev_evaluator.print_results()
-            print("Test set results:")
-            test_evaluator.print_results()
+                # eval finetuned model on test
+                print("Test set finetuned:")
+                test_evaluator(model)
 
-            # write results
-            model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
-            dev_evaluator.write_results(path=Path(f"finetuned-{model_name_}-dev.csv"))
-            test_evaluator.write_results(path=Path(f"finetuned-{model_name_}-test.csv"))
+                # print results
+                print(f"Dev set results fine-tuned on {dim}:")
+                dev_evaluator.print_results()
+                print(f"Test set results fine-tuned on {dim}:")
+                test_evaluator.print_results()
+
+                # write results
+                dev_evaluator.write_results(path=Path(result_dir,f"finetuned-{model_name_}-{dim}-dev.csv"))
+                test_evaluator.write_results(path=Path(result_dir, f"finetuned-{model_name_}-{dim}-test.csv"))
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
 
 
-def make_training_data(data: List[ArticlePair]) -> List[InputExample]:
+def make_training_data(data: List[ArticlePair], dim_name="overall") -> List[InputExample]:
     inputs: List[InputExample] = [
         InputExample(
             texts=[pair.article_1.text, pair.article_2.text],
-            label=normalize_score_01(pair.overall),
+            label=normalize_score_01(getattr(pair, dim_name)),
         )
         for pair in data
     ]
@@ -385,6 +403,7 @@ def finetune_model(
     inputs: List[InputExample],
     evaluator: CorrelationEvaluator | MultitaskPromptCorrelationEvaluator | MultitaskHeadCorrelationEvaluator,
     loss_fcn: nn.Module,
+    name: str,
 ):
     dataloader = DataLoader(inputs, shuffle=True, batch_size=32)
     loss = loss_fcn(model)
@@ -394,7 +413,7 @@ def finetune_model(
         warmup_steps=100,
         evaluator=evaluator,
         use_amp=True,
-        output_path="models",
+        output_path=f"models/{name}",
     )
 
 
