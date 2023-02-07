@@ -105,7 +105,8 @@ class SemEvalDataset(Dataset):
 
     def random_split(self, percent: float) -> Tuple[List[ArticlePair], List[ArticlePair]]:
         pairs = self.article_pairs.copy()
-        random.shuffle(pairs)
+        randomizer = random.Random(42)
+        randomizer.shuffle(pairs)
         split = int(percent * len(pairs))
         return pairs[:split], pairs[split:]
 

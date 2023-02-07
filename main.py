@@ -338,6 +338,9 @@ def main():
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
     test = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
     train, dev = dataset.random_split(0.8)
+    # This is to safeguard against any rng shenanigans
+    assert train[0].article_2.title == "The 20 Best Places to Travel in 2020"
+    assert train[1].article_2.title == "Shoplifters arrested for stealing beer and meat from Guelph grocery store"
     training_inputs_per_dim = [make_training_data(train, dim) for dim in dimensions]
     dev_evaluator = CorrelationEvaluator(dev)
     test_evaluator = CorrelationEvaluator(test)
