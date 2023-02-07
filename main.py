@@ -16,8 +16,8 @@ from sentence_transformers import InputExample, SentenceTransformer, losses, mod
 from sentence_transformers.util import cos_sim
 from torch.utils.data import DataLoader
 from torch import nn
-from dos.cosine_loss_multiple_labels import CosineSimilarityLossForMultipleLabels
 
+from dos.cosine_loss_multiple_labels import CosineSimilarityLossForMultipleLabels
 from dos.dataset import ArticlePair, SemEvalDataset
 from dos.evaluator import CorrelationEvaluator, MultitaskPromptCorrelationEvaluator, MultitaskHeadCorrelationEvaluator
 from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
@@ -383,6 +383,41 @@ def main():
                 # write results
                 dev_evaluator.write_results(path=Path(result_dir,f"finetuned-{model_name_}-{dim}-dev.csv"))
                 test_evaluator.write_results(path=Path(result_dir, f"finetuned-{model_name_}-{dim}-test.csv"))
+        except Exception as e:
+            print("Error evaluating", model_name)
+            print(e)
+
+
+@app.command()
+def pretrained_eval_sweep():
+    for datasplit in ["train", "eval"]:
+        for languages in [None, ["en"]]:
+            pretrained_eval(languages, datasplit)
+
+
+@app.command()
+def pretrained_eval(languages: Optional[List[str]] = None, datasplit: str = "train", translated: bool = False):
+    dataset = SemEvalDataset(Path(f"data/{datasplit}.csv"), Path(f"data/{datasplit}_data{'_translated' if translated else ''}"), langs=languages or "all")
+    evaluator = CorrelationEvaluator(dataset)
+    for model_name in train_models:
+        try:
+            print("### Using", model_name)
+            # init model
+            model = SentenceTransformer(model_name)
+            evaluator.model_name = model_name
+            for max_seq_len in [256, 512]:
+                model.max_seq_length = max_seq_len
+
+                # eval untrained model on dev
+                print(f"{datasplit} set untrained:")
+                evaluator(model)
+                evaluator.print_results()
+
+                # write results
+                model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
+                evaluator.write_results(path=Path(
+                    f"pretrained-{model_name_}-{datasplit}-{'_'.join(languages) if languages is not None else 'all'}{'-translated' if translated else ''}-seq_len={model.max_seq_length}.csv")
+                )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)

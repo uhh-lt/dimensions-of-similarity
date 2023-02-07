@@ -20,12 +20,12 @@ class CorrelationEvaluatorBase(SentenceEvaluator):
         self.stats = {}
 
     def print_results(self):
-        df = pd.DataFrame(self.stats, index=DIMENSIONS).T
+        df = pd.DataFrame(self.stats, index=DIMENSIONS).reindex(["GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"]).T
         df.index.name = "Epoch"
         print(df)
 
     def write_results(self, path: Path):
-        df = pd.DataFrame(self.stats, index=DIMENSIONS).T
+        df = pd.DataFrame(self.stats, index=DIMENSIONS).reindex(["GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"]).T
         df.index.name = "Epoch"
         df.to_csv(path_or_buf=path)
 
