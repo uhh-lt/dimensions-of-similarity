@@ -440,5 +440,31 @@ def reviews():
         )
 
 
+@app.command()
+def poetry():
+    import sklearn.metrics
+    dataset = PoetryDataset("data/jcls2022-poem-similarity")
+    for dimension in ["content", "form", "style", "emotion", "overall"]:
+        overall_different = dataset.with_unambigious_dimension(dimension)
+        model = SentenceTransformer("sentence-transformers/LaBSE")
+        anchors = []
+        lefts = []
+        rights = []
+        labels = []
+        for doc in overall_different:
+            rights.append(doc.right_text)
+            lefts.append(doc.left_text)
+            anchors.append(doc.base_text)
+            labels.append(doc.overall.value)
+        anchor_embs = model.encode(anchors, convert_to_tensor=True)
+        left_embs = model.encode(lefts, convert_to_tensor=True)
+        right_embs = model.encode(rights, convert_to_tensor=True)
+        predictions = (torch.nn.functional.cosine_similarity(left_embs, anchor_embs) < torch.nn.functional.cosine_similarity(right_embs, anchor_embs)).cpu()
+        label_tensor = torch.tensor(labels, dtype=torch.bool)
+        correct = (label_tensor == predictions)
+        balanced_accuracy = sklearn.metrics.balanced_accuracy_score(label_tensor, predictions)
+        print("Accuracy on", dimension, f"{balanced_accuracy:.02f}")
+
+
 if __name__ == "__main__":
     app()
