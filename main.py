@@ -23,6 +23,7 @@ from dos.evaluator import CorrelationEvaluator, MultitaskPromptCorrelationEvalua
 from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
 from dos.reshape_normalize_layer import ReshapeAndNormalize
 from dos.reviews import ReviewDataset
+from dos.poetry import PoetryDataset
 
 random.seed(42)
 np.random.seed(42)
