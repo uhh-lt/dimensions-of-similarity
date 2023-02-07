@@ -480,9 +480,17 @@ def reviews():
 def poetry():
     import sklearn.metrics
     dataset = PoetryDataset("data/jcls2022-poem-similarity")
+    model_dict = {
+        "content": "models/finetuned-LaBSE-narrative",
+        "style": "models/finetuned-LaBSE-style",
+        "emotion": "models/finetuned-LaBSE-tone",
+        "overall": "models/finetuned-LaBSE-overall",
+    }
     for dimension in ["content", "form", "style", "emotion", "overall"]:
         overall_different = dataset.with_unambigious_dimension(dimension)
-        model = SentenceTransformer("sentence-transformers/LaBSE")
+        model_name = model_dict.get(dimension, "sentence-transformers/LaBSE")
+        print("Using", model_name)
+        model = SentenceTransformer(model_name)
         anchors = []
         lefts = []
         rights = []
