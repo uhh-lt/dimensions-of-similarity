@@ -3,6 +3,7 @@ from collections import defaultdict
 from enum import Enum
 from itertools import count
 from pathlib import Path
+import os
 from typing import List, Optional
 
 import fasttext
@@ -463,9 +464,27 @@ def finetune_model(
 
 @app.command()
 def reviews():
-    dataset = ReviewDataset("data/amazon_reviews/amazon_total.txt")
+    limit = 10_000
+    dataset = ReviewDataset("data/amazon_reviews/amazon_total.txt", num=limit)
+    model_name = "sentence-transformers/LaBSE"
+    model = SentenceTransformer(model_name)
+    os.makedirs("data/cache/", exist_ok=True)
+    review_texts = [r.review or "" for r in dataset]
+    cache_path = f"data/cache/reviews-{model_name.split('/')[-1]}-limit={limit}.pt"
+    if not os.path.exists(cache_path):
+        encoded = model.encode(review_texts, convert_to_tensor=True, show_progress_bar=True)
+        torch.save(encoded, cache_path)
+    else:
+        encoded = torch.load(cache_path)
+    review_embs = {}
     for product_id, reviews_group in dataset.grouped_by_product():
         reviews = list(reviews_group)
+        selector = torch.tensor([r.embedding_index for r in reviews])
+        review_embs[product_id] = encoded[selector]
+        all_others = select_all_other_embeddings(encoded, selector)
+        print(all_others.shape, encoded[selector].shape)
+        print("Intra product", intra_cluster_sim(review_embs[product_id]))
+        print("Inter product", inter_cluster_sim(review_embs[product_id], all_others))
         print(
             "Product",
             product_id,
@@ -474,6 +493,25 @@ def reviews():
             "reviews and an average rating of",
             sum(r.rating for r in reviews) / len(reviews)
         )
+
+
+def inter_cluster_sim(cluster_a, cluster_b):
+    sims = cos_sim(cluster_a, cluster_a)
+    return sims.mean()
+
+
+def intra_cluster_sim(embeddings):
+    sims = cos_sim(embeddings, embeddings)
+    mean = (sims.sum() - len(sims.diagonal())) / (sims.shape[0] * sims.shape[1] - len(sims.diagonal()))
+    return mean
+
+
+def select_all_other_embeddings(embeddings, indexes):
+    mask = torch.ones(embeddings.shape[0])
+    mask[indexes] = 0
+    return embeddings.masked_select(
+        mask.unsqueeze(-1).to(dtype=torch.bool, device=embeddings.device)
+    ).reshape(-1, embeddings.shape[-1])
 
 
 @app.command()

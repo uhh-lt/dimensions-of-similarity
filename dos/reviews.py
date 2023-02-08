@@ -11,19 +11,21 @@ class Review():
     product_id: str
     helpfulness: Tuple[Union[int, None], int]
     id: str
+    embedding_index: int
     review_by: str
     title: str
     review_time: str
     review: str
 
     @classmethod
-    def from_lines(cls, lines: List[str]) -> "Review":
+    def from_lines(cls, lines: List[str], embedding_index: int) -> "Review":
         kwargs = {k.lower().strip(): v.strip() for k, v in (l.split(": ", 1) for l in lines)}
         return cls(
             rating=float(kwargs["rating"].split(" ", 1)[0]),
             product_id=kwargs["product_id"],
             helpfulness=tuple(int(x.replace(",", "")) if x != "out" else None for x in kwargs["helpfulness"].split("/", 1)),
             id=kwargs["id"],
+            embedding_index=embedding_index,
             review_by=kwargs["review_by"],
             title=kwargs["title"],
             review_time=kwargs["review_time"],
@@ -41,7 +43,7 @@ class ReviewDataset(Dataset):
         for i, entry in enumerate(iterator):
             if num is not None and i >= num:
                 break
-            self.reviews.append(Review.from_lines(entry))
+            self.reviews.append(Review.from_lines(entry, i))
 
     def grouped_by_product(self):
         keyfunc = lambda r: r.product_id
