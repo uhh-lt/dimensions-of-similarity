@@ -464,30 +464,31 @@ def finetune_model(
 
 @app.command()
 def reviews():
-    limit = 10_000
+    limit = 250_000
     dataset = ReviewDataset("data/amazon_reviews/amazon_total.txt", num=limit)
     model_name = "sentence-transformers/LaBSE"
-    model = SentenceTransformer(model_name)
+    model = SentenceTransformer(model_name, device="cuda:0")
     os.makedirs("data/cache/", exist_ok=True)
     review_texts = [r.review or "" for r in dataset]
     cache_path = f"data/cache/reviews-{model_name.split('/')[-1]}-limit={limit}.pt"
     if not os.path.exists(cache_path):
-        encoded = model.encode(review_texts, convert_to_tensor=True, show_progress_bar=True)
+        encoded = model.encode(review_texts, convert_to_tensor=True, show_progress_bar=True, batch_size=1024)
         torch.save(encoded, cache_path)
     else:
-        encoded = torch.load(cache_path)
+        encoded = torch.load(cache_path, map_location="cpu")
     review_embs = {}
-    for product_id, reviews_group in dataset.grouped_by_product():
+    for group_key, reviews_group in dataset.grouped_by_rating():
+        group_name = "Rating"
         reviews = list(reviews_group)
         selector = torch.tensor([r.embedding_index for r in reviews])
-        review_embs[product_id] = encoded[selector]
+        review_embs[group_key] = encoded[selector]
         all_others = select_all_other_embeddings(encoded, selector)
-        print(all_others.shape, encoded[selector].shape)
-        print("Intra product", intra_cluster_sim(review_embs[product_id]))
-        print("Inter product", inter_cluster_sim(review_embs[product_id], all_others))
+        intra_group = intra_cluster_sim(review_embs[group_key])
+        inter_group = inter_cluster_sim(review_embs[group_key], all_others)
+        print(f"Intra {group_name}", intra_group, f"Inter {group_name}", inter_group)
         print(
-            "Product",
-            product_id,
+            group_name,
+            group_key,
             "with",
             len(reviews),
             "reviews and an average rating of",
@@ -496,7 +497,7 @@ def reviews():
 
 
 def inter_cluster_sim(cluster_a, cluster_b):
-    sims = cos_sim(cluster_a, cluster_a)
+    sims = cos_sim(cluster_a, cluster_b)
     return sims.mean()
 
 

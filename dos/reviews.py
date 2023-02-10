@@ -46,7 +46,13 @@ class ReviewDataset(Dataset):
             self.reviews.append(Review.from_lines(entry, i))
 
     def grouped_by_product(self):
-        keyfunc = lambda r: r.product_id
+        return self.grouped_by_attr("product")
+
+    def grouped_by_rating(self):
+        return self.grouped_by_attr("rating", lambda x: round(x))
+
+    def grouped_by_attr(self, attr, round_function = lambda x: x):
+        keyfunc = lambda r: round_function(getattr(r, attr))
         return itertools.groupby(sorted(self.reviews, key=keyfunc), key=keyfunc)
 
     def __getitem__(self, i: int) -> Review:
