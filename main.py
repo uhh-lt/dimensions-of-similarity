@@ -467,10 +467,18 @@ def finetune_model(
 class ReviewSimilarityDimensions(Enum):
     DIFFERENT_PRODUCT_SAME_RATING = "different_product_same_rating"
     SAME_RATING = "same_rating"
+    SAME_PRODUCT = "same_product"
+
+    def review_comparison(self):
+        return {
+            ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id != b.product_id and round(a.rating) == round(b.rating),
+            ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating) == round(b.rating),
+            ReviewSimilarityDimensions.SAME_PRODUCT: lambda a, b: a.product_id == b.product_id,
+        }[self]
 
 
 @app.command()
-def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rating", split: float=1.0):
+def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rating", split: float=1.0, sum_embeddings: bool = False):
     """
     prams:
         split: randomly only use `split` fraction of the dataset
@@ -479,11 +487,8 @@ def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rati
     dataset = ReviewDataset(path, sample=split)
     print(f"Using {split * 100}% of the data that is {len(dataset)} reviews.")
     embeddings_per_model = dict()
-    gold_label_func = {
-        ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id != b.product_id and round(a.rating) == round(b.rating),
-        ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating) == round(b.rating),
-    }[dimension]
-    for model_name in ["models/finetuned-LaBSE-tone", "models/finetuned-LaBSE-overall", "sentence-transformers/LaBSE"]:
+    gold_label_func = dimension.review_comparison()
+    for model_name in ["models/finetuned-LaBSE-tone", "models/finetuned-LaBSE-entities", "models/finetuned-LaBSE-overall", "sentence-transformers/LaBSE"]:
         model = SentenceTransformer(model_name, device="cuda:0")
         os.makedirs("data/cache/", exist_ok=True)
         review_texts = [r.review or "" for r in dataset]
@@ -498,15 +503,15 @@ def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rati
         map_sample = 0.1
         map_dataset = random_sample(dataset, map_sample)
         map_encoded = encoded[[r.embedding_index for r in map_dataset]]
-        print(f"MAP with {model_name}:", mean_average_precision([(1.0, map_encoded)], map_dataset, gold_label=gold_label_func))
+        print(f"MAP with {model_name}:", mean_average_precision([(1.0, map_encoded)], map_dataset, gold_label=gold_label_func, sum_embeddings=sum_embeddings))
         embeddings_per_model[model_name] = encoded
     map_dataset = random_sample(dataset, map_sample)
     map_encoded = [
         (1.0, embeddings_per_model["models/finetuned-LaBSE-tone"][[r.embedding_index for r in map_dataset]]),
         (-1.0, embeddings_per_model["models/finetuned-LaBSE-overall"][[r.embedding_index for r in map_dataset]]),
     ]
-    print(f"MAP with both", mean_average_precision(map_encoded, map_dataset, gold_label=gold_label_func))
-    print(f"MAP random", mean_average_precision([(1.0, torch.rand_like(map_encoded[0][1]))], map_dataset, gold_label=gold_label_func))
+    print(f"MAP with both", mean_average_precision(map_encoded, map_dataset, gold_label=gold_label_func, sum_embeddings=sum_embeddings))
+    print(f"MAP random", mean_average_precision([(1.0, torch.rand_like(map_encoded[0][1]))], map_dataset, gold_label=gold_label_func, sum_embeddings=sum_embeddings))
 
 
 def random_sample(dataset, frac, seed=42):
@@ -514,13 +519,19 @@ def random_sample(dataset, frac, seed=42):
     return dataset
 
 
-def mean_average_precision(weighted_embeddings, dataset, gold_label=lambda x, y: round(x.rating) == round(y.rating)):
+def mean_average_precision(weighted_embeddings, dataset, gold_label=lambda x, y: round(x.rating) == round(y.rating), sum_embeddings=False):
     sims = None
-    for weight, embeddings in weighted_embeddings:
-        if sims is None:
-            sims = cos_sim(embeddings, embeddings) * weight
-        else:
-            sims += cos_sim(embeddings, embeddings) * weight
+    if not sum_embeddings:
+        for weight, embeddings in weighted_embeddings:
+            if sims is None:
+                sims = cos_sim(embeddings, embeddings) * weight
+            else:
+                sims += cos_sim(embeddings, embeddings) * weight
+    else:
+        final_embeddings = torch.zeros_like(weighted_embeddings[0][1])
+        for weight, embeddings in weighted_embeddings:
+            final_embeddings += embeddings * weight
+        sims = cos_sim(final_embeddings, final_embeddings)
     maps = []
     for i, sim_line in enumerate(sims):
         labels = [gold_label(r, dataset[i]) for r in dataset]
