@@ -1,3 +1,4 @@
+import random
 from torch.utils.data.dataset import Dataset
 from dataclasses import dataclass
 import itertools
@@ -34,16 +35,18 @@ class Review():
 
 
 class ReviewDataset(Dataset):
-    def __init__(self, path: str, num: Optional[int] = None):
+    def __init__(self, path: str, sample: float = 1.0, seed=42):
         num_fields = 8
         self.reviews: List[Review] = []
         in_file = open(path)
         iterator = more_itertools.windowed((line for line in in_file if len(line.strip()) > 0), num_fields, step=num_fields)
         i = 0
-        for i, entry in enumerate(iterator):
-            if num is not None and i >= num:
-                break
+        randomizer = random.Random(seed)
+        for entry in iterator:
+            if randomizer.random() > sample:
+                continue
             self.reviews.append(Review.from_lines(entry, i))
+            i += 1
 
     def grouped_by_product(self):
         return self.grouped_by_attr("product")

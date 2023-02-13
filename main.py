@@ -10,9 +10,11 @@ import fasttext
 import numpy as np
 import pandas as pd
 import spacy
+import sklearn.metrics
 import torch
 import typer
 import random
+from tqdm import tqdm
 from sentence_transformers import InputExample, SentenceTransformer, losses, models
 from sentence_transformers.util import cos_sim
 from torch.utils.data import DataLoader
@@ -462,49 +464,69 @@ def finetune_model(
     )
 
 
+class ReviewSimilarityDimensions(Enum):
+    DIFFERENT_PRODUCT_SAME_RATING = "different_product_same_rating"
+    SAME_RATING = "same_rating"
+
+
 @app.command()
-def reviews():
-    limit = 250_000
-    dataset = ReviewDataset("data/amazon_reviews/amazon_total.txt", num=limit)
-    model_name = "sentence-transformers/LaBSE"
-    model = SentenceTransformer(model_name, device="cuda:0")
-    os.makedirs("data/cache/", exist_ok=True)
-    review_texts = [r.review or "" for r in dataset]
-    cache_path = f"data/cache/reviews-{model_name.split('/')[-1]}-limit={limit}.pt"
-    if not os.path.exists(cache_path):
-        encoded = model.encode(review_texts, convert_to_tensor=True, show_progress_bar=True, batch_size=1024)
-        torch.save(encoded, cache_path)
-    else:
-        encoded = torch.load(cache_path, map_location="cpu")
-    review_embs = {}
-    for group_key, reviews_group in dataset.grouped_by_rating():
-        group_name = "Rating"
-        reviews = list(reviews_group)
-        selector = torch.tensor([r.embedding_index for r in reviews])
-        review_embs[group_key] = encoded[selector]
-        all_others = select_all_other_embeddings(encoded, selector)
-        intra_group = intra_cluster_sim(review_embs[group_key])
-        inter_group = inter_cluster_sim(review_embs[group_key], all_others)
-        print(f"Intra {group_name}", intra_group, f"Inter {group_name}", inter_group)
-        print(
-            group_name,
-            group_key,
-            "with",
-            len(reviews),
-            "reviews and an average rating of",
-            sum(r.rating for r in reviews) / len(reviews)
-        )
+def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rating", split: float=1.0):
+    """
+    prams:
+        split: randomly only use `split` fraction of the dataset
+    """
+    path = Path("data/amazon_reviews/amazon_80k.txt")
+    dataset = ReviewDataset(path, sample=split)
+    print(f"Using {split * 100}% of the data that is {len(dataset)} reviews.")
+    embeddings_per_model = dict()
+    gold_label_func = {
+        ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id != b.product_id and round(a.rating) == round(b.rating),
+        ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating) == round(b.rating),
+    }[dimension]
+    for model_name in ["models/finetuned-LaBSE-tone", "models/finetuned-LaBSE-overall", "sentence-transformers/LaBSE"]:
+        model = SentenceTransformer(model_name, device="cuda:0")
+        os.makedirs("data/cache/", exist_ok=True)
+        review_texts = [r.review or "" for r in dataset]
+        cache_path = f"data/cache/{path.stem}-{model_name.split('/')[-1]}{'-split=' + str(split) if split != 1.0 else ''}.pt"
+        if not os.path.exists(cache_path):
+            # We need to take the numpy version first to move the data of the gpu
+            encoded = torch.from_numpy(model.encode(review_texts, show_progress_bar=True, batch_size=32))
+            torch.save(encoded, cache_path)
+        else:
+            encoded = torch.load(cache_path, map_location="cpu")
+        review_embs = {}
+        map_sample = 0.1
+        map_dataset = random_sample(dataset, map_sample)
+        map_encoded = encoded[[r.embedding_index for r in map_dataset]]
+        print(f"MAP with {model_name}:", mean_average_precision([(1.0, map_encoded)], map_dataset, gold_label=gold_label_func))
+        embeddings_per_model[model_name] = encoded
+    map_dataset = random_sample(dataset, map_sample)
+    map_encoded = [
+        (1.0, embeddings_per_model["models/finetuned-LaBSE-tone"][[r.embedding_index for r in map_dataset]]),
+        (-1.0, embeddings_per_model["models/finetuned-LaBSE-overall"][[r.embedding_index for r in map_dataset]]),
+    ]
+    print(f"MAP with both", mean_average_precision(map_encoded, map_dataset, gold_label=gold_label_func))
+    print(f"MAP random", mean_average_precision([(1.0, torch.rand_like(map_encoded[0][1]))], map_dataset, gold_label=gold_label_func))
 
 
-def inter_cluster_sim(cluster_a, cluster_b):
-    sims = cos_sim(cluster_a, cluster_b)
-    return sims.mean()
+def random_sample(dataset, frac, seed=42):
+    dataset, _ = torch.utils.data.random_split(dataset, [frac, 1 - frac], generator=torch.Generator().manual_seed(seed))
+    return dataset
 
 
-def intra_cluster_sim(embeddings):
-    sims = cos_sim(embeddings, embeddings)
-    mean = (sims.sum() - len(sims.diagonal())) / (sims.shape[0] * sims.shape[1] - len(sims.diagonal()))
-    return mean
+def mean_average_precision(weighted_embeddings, dataset, gold_label=lambda x, y: round(x.rating) == round(y.rating)):
+    sims = None
+    for weight, embeddings in weighted_embeddings:
+        if sims is None:
+            sims = cos_sim(embeddings, embeddings) * weight
+        else:
+            sims += cos_sim(embeddings, embeddings) * weight
+    maps = []
+    for i, sim_line in enumerate(sims):
+        labels = [gold_label(r, dataset[i]) for r in dataset]
+        ap = sklearn.metrics.average_precision_score(labels, sim_line)
+        maps.append(ap)
+    return sum(maps) / len(maps)
 
 
 def select_all_other_embeddings(embeddings, indexes):
