@@ -27,6 +27,7 @@ from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
 from dos.reshape_normalize_layer import ReshapeAndNormalize
 from dos.reviews import ReviewDataset
 from dos.poetry import PoetryDataset
+from dos.sentiment import Sentiment, SentimentDataset
 
 random.seed(42)
 np.random.seed(42)
@@ -583,6 +584,27 @@ def poetry(all_combinations: bool = False, subtract_overall: bool = False):
             label_tensor = torch.tensor(labels, dtype=torch.bool)
             balanced_accuracy = sklearn.metrics.balanced_accuracy_score(label_tensor, predictions)
             print("Accuracy on", dimension, f"{balanced_accuracy:.02f}")
+
+
+@app.command()
+def sentiment():
+    dataset = SentimentDataset("data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.english.txt")
+    model_dict = {
+        "narrative": "models/finetuned-LaBSE-narrative",
+        "style": "models/finetuned-LaBSE-style",
+        "entities": "models/finetuned-LaBSE-entities",
+        "tone": "models/finetuned-LaBSE-tone",
+        "overall": "models/finetuned-LaBSE-overall",
+        "unfinetuned": "sentence-transformers/LaBSE",
+    }
+    for name, model_id in model_dict.items():
+        model = SentenceTransformer(model_id)
+        encoded = model.encode([text for _label, text in dataset], convert_to_tensor=True, show_progress_bar=True)
+        print("Using model", name)
+        dist_matrix = 1 - cos_sim(encoded, encoded).cpu()
+        dist_matrix.fill_diagonal_(0)
+        silhouette_score = sklearn.metrics.silhouette_score(dist_matrix, [label.value for label, _text in dataset], metric="precomputed")
+        print(f"Silhouette score {silhouette_score:.4f}")
 
 
 if __name__ == "__main__":
