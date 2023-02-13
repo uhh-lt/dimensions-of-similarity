@@ -1,12 +1,13 @@
-from torch.utils.data.dataset import Dataset, Subset
-from dataclasses import dataclass
+import csv
+import enum
 import itertools
 from collections import Counter
-from typing import Tuple, List, Optional, Union, Dict
-import more_itertools
+from dataclasses import dataclass
 from pathlib import Path
-import enum
-import csv
+from typing import Dict, List, Optional, Tuple, Union
+
+import more_itertools
+from torch.utils.data.dataset import Dataset, Subset
 
 
 class Direction(enum.Enum):
@@ -27,7 +28,7 @@ class Direction(enum.Enum):
 
 
 @dataclass
-class PoetryPair():
+class PoetryPair:
     annotator: str
     base_title: str
     base_id: str
@@ -54,13 +55,14 @@ class PoetryPair():
         }
 
 
-
 class PoetryDataset(Dataset):
     dimensions = ["form", "content", "emotion", "style", "overall"]
 
     def __init__(self, path: str, num: Optional[int] = None):
         raw_pairs = []
-        reader = csv.DictReader(open(Path(path) / "raw_annotations.tsv"), delimiter="\t")
+        reader = csv.DictReader(
+            open(Path(path) / "raw_annotations.tsv"), delimiter="\t"
+        )
         for i, entry in enumerate(reader):
             if num is not None and i >= num:
                 break
@@ -112,7 +114,14 @@ class PoetryDataset(Dataset):
         return len(self.pairs)
 
     def with_unambigious_dimension(self, dimension) -> Subset:
-        return Subset(self, [i for i in range(len(self)) if getattr(self[i], dimension) != Direction.SAME])
+        return Subset(
+            self,
+            [
+                i
+                for i in range(len(self))
+                if getattr(self[i], dimension) != Direction.SAME
+            ],
+        )
 
     @classmethod
     def texts_and_labels(cls, instance):
@@ -126,7 +135,6 @@ class PoetryDataset(Dataset):
             anchors.append(doc.base_text)
             labels.append(doc.overall.value)
         return anchors, lefts, rights, labels
-
 
 
 if __name__ == "__main__":

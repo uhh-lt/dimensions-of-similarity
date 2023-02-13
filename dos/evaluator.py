@@ -1,10 +1,12 @@
 from pathlib import Path
-from sentence_transformers.evaluation import SentenceEvaluator
 from typing import List
-from torch.nn.functional import cosine_similarity
-import torch
-from dos.dataset import ArticlePair, DIMENSIONS
+
 import pandas as pd
+import torch
+from sentence_transformers.evaluation import SentenceEvaluator
+from torch.nn.functional import cosine_similarity
+
+from dos.dataset import DIMENSIONS, ArticlePair
 
 
 class CorrelationEvaluatorBase(SentenceEvaluator):
@@ -20,12 +22,20 @@ class CorrelationEvaluatorBase(SentenceEvaluator):
         self.stats = {}
 
     def print_results(self):
-        df = pd.DataFrame(self.stats, index=DIMENSIONS).reindex(["GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"]).T
+        df = (
+            pd.DataFrame(self.stats, index=DIMENSIONS)
+            .reindex(["GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"])
+            .T
+        )
         df.index.name = "Epoch"
         print(df)
 
     def write_results(self, path: Path):
-        df = pd.DataFrame(self.stats, index=DIMENSIONS).reindex(["GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"]).T
+        df = (
+            pd.DataFrame(self.stats, index=DIMENSIONS)
+            .reindex(["GEO", "ENT", "TIME", "NAR", "STYLE", "TONE", "Overall"])
+            .T
+        )
         df.index.name = "Epoch"
         df.to_csv(path_or_buf=path)
 
@@ -37,7 +47,9 @@ class CorrelationEvaluator(CorrelationEvaluatorBase):
         self.article2 = [pair.article_2.text for pair in dataset]
         self.score_column = 4
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1) -> float:
+    def __call__(
+        self, model, output_path: str = None, epoch: int = -1, steps: int = -1
+    ) -> float:
         embeddings1 = model.encode(self.article1, convert_to_tensor=True)
         embeddings2 = model.encode(self.article2, convert_to_tensor=True)
         sims = cosine_similarity(embeddings1, embeddings2, dim=1)
@@ -70,7 +82,15 @@ class CorrelationEvaluator(CorrelationEvaluatorBase):
 class MultitaskPromptCorrelationEvaluator(CorrelationEvaluatorBase):
     def __init__(self, dataset: List[ArticlePair]):
         super().__init__(dataset)
-        self.dimensions = ["geography", "entities", "time", "narrative", "overall", "style", "tone"]
+        self.dimensions = [
+            "geography",
+            "entities",
+            "time",
+            "narrative",
+            "overall",
+            "style",
+            "tone",
+        ]
         self.article1 = {dimension: [] for dimension in self.dimensions}
         self.article2 = {dimension: [] for dimension in self.dimensions}
         for pair in dataset:
@@ -78,7 +98,9 @@ class MultitaskPromptCorrelationEvaluator(CorrelationEvaluatorBase):
                 self.article1[dimension].append(f"{dimension}: {pair.article_1.text}")
                 self.article2[dimension].append(f"{dimension}: {pair.article_2.text}")
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1) -> float:
+    def __call__(
+        self, model, output_path: str = None, epoch: int = -1, steps: int = -1
+    ) -> float:
         final_score = 0
         correlations = []
         for dim_id, dimension in enumerate(self.dimensions):
@@ -120,11 +142,21 @@ class MultitaskPromptCorrelationEvaluator(CorrelationEvaluatorBase):
 class MultitaskHeadCorrelationEvaluator(CorrelationEvaluatorBase):
     def __init__(self, dataset: List[ArticlePair]):
         super().__init__(dataset)
-        self.dimensions = ["geography", "entities", "time", "narrative", "overall", "style", "tone"]
+        self.dimensions = [
+            "geography",
+            "entities",
+            "time",
+            "narrative",
+            "overall",
+            "style",
+            "tone",
+        ]
         self.article1 = [pair.article_1.text for pair in dataset]
         self.article2 = [pair.article_2.text for pair in dataset]
 
-    def __call__(self, model, output_path: str = None, epoch: int = -1, steps: int = -1) -> float:
+    def __call__(
+        self, model, output_path: str = None, epoch: int = -1, steps: int = -1
+    ) -> float:
         final_score = 0
         correlations = []
 
@@ -133,7 +165,9 @@ class MultitaskHeadCorrelationEvaluator(CorrelationEvaluatorBase):
         embeddings2 = model.encode(self.article2, convert_to_tensor=True)
 
         for dim_id, dimension in enumerate(self.dimensions):
-            sims = cosine_similarity(embeddings1[:, dim_id, :], embeddings2[:, dim_id, :], dim=1)
+            sims = cosine_similarity(
+                embeddings1[:, dim_id, :], embeddings2[:, dim_id, :], dim=1
+            )
             sims = (1 - sims).to(self.overall.device)
 
             similiarities = torch.stack(

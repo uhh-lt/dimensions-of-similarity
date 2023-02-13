@@ -1,7 +1,8 @@
-import torch
 from typing import Dict, Iterable
-from torch import nn, Tensor
+
+import torch
 from sentence_transformers import SentenceTransformer
+from torch import Tensor, nn
 
 
 class CosineSimilarityLossForMultipleLabels(nn.Module):
@@ -19,11 +20,16 @@ class CosineSimilarityLossForMultipleLabels(nn.Module):
         self.num_labels = num_labels
 
     def forward(self, sentence_features: Iterable[Dict[str, Tensor]], labels: Tensor):
-        embeddings = [self.model(sentence_feature)["sentence_embedding"] for sentence_feature in sentence_features]
+        embeddings = [
+            self.model(sentence_feature)["sentence_embedding"]
+            for sentence_feature in sentence_features
+        ]
         output = torch.stack(
             [
                 self.cos_score_transformation(
-                    torch.cosine_similarity(embeddings[0][:, dim, :], embeddings[1][:, dim, :])
+                    torch.cosine_similarity(
+                        embeddings[0][:, dim, :], embeddings[1][:, dim, :]
+                    )
                 )
                 for dim in range(self.num_labels)
             ]

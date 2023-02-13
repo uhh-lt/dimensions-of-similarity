@@ -1,7 +1,8 @@
-from easynmt import EasyNMT
-import json
 import glob
+import json
 from pathlib import Path
+
+from easynmt import EasyNMT
 from tqdm import tqdm
 
 input_dir = "eval_data"

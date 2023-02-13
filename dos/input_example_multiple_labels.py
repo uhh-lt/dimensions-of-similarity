@@ -26,4 +26,6 @@ class InputExampleWithMultipleLabels:
         self.label = label
 
     def __str__(self):
-        return "<InputExample> labels: {}, texts: {}".format("; ".join(self.label), "; ".join(self.texts))
+        return "<InputExample> labels: {}, texts: {}".format(
+            "; ".join(self.label), "; ".join(self.texts)
+        )

@@ -1,6 +1,7 @@
-from pathlib import Path
-from torch.utils.data.dataset import Dataset
 from enum import Enum
+from pathlib import Path
+
+from torch.utils.data.dataset import Dataset
 
 
 class Sentiment(Enum):
@@ -28,6 +29,8 @@ class SentimentDataset(Dataset):
         return len(self.labels)
 
 
-if __name__  == "__main__":
-    for label, sent in SentimentDataset("data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.english.txt"):
+if __name__ == "__main__":
+    for label, sent in SentimentDataset(
+        "data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.english.txt"
+    ):
         print(label, sent)

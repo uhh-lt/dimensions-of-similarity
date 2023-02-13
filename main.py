@@ -1,32 +1,36 @@
 import dataclasses
+import os
+import random
 from collections import defaultdict
 from enum import Enum
 from itertools import count
 from pathlib import Path
-import os
 from typing import List, Optional
 
 import fasttext
 import numpy as np
 import pandas as pd
-import spacy
 import sklearn.metrics
+import spacy
 import torch
 import typer
-import random
-from tqdm import tqdm
 from sentence_transformers import InputExample, SentenceTransformer, losses, models
 from sentence_transformers.util import cos_sim
-from torch.utils.data import DataLoader
 from torch import nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from dos.cosine_loss_multiple_labels import CosineSimilarityLossForMultipleLabels
 from dos.dataset import ArticlePair, SemEvalDataset
-from dos.evaluator import CorrelationEvaluator, MultitaskPromptCorrelationEvaluator, MultitaskHeadCorrelationEvaluator
+from dos.evaluator import (
+    CorrelationEvaluator,
+    MultitaskHeadCorrelationEvaluator,
+    MultitaskPromptCorrelationEvaluator,
+)
 from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
+from dos.poetry import PoetryDataset
 from dos.reshape_normalize_layer import ReshapeAndNormalize
 from dos.reviews import ReviewDataset
-from dos.poetry import PoetryDataset
 from dos.sentiment import Sentiment, SentimentDataset
 
 random.seed(42)
@@ -164,11 +168,15 @@ def fasttext_similarity(
     for pair, i in zip(current_dataset, range(limit) if limit is not None else count()):
         verbs_a = [
             fasttext_emb
-            for spacy_emb, fasttext_emb in extract_embeddings(pair.article_1.text, embedder, kind.get_filter())
+            for spacy_emb, fasttext_emb in extract_embeddings(
+                pair.article_1.text, embedder, kind.get_filter()
+            )
         ]
         verbs_b = [
             fasttext_emb
-            for spacy_emb, fasttext_emb in extract_embeddings(pair.article_2.text, embedder, kind.get_filter())
+            for spacy_emb, fasttext_emb in extract_embeddings(
+                pair.article_2.text, embedder, kind.get_filter()
+            )
         ]
         if len(verbs_a) == 0 or len(verbs_b) == 0:
             continue
@@ -189,7 +197,9 @@ def fasttext_similarity(
             gold_sims[key].append(value)
     correlations = {}
     for key, gold_values in gold_sims.items():
-        correlations[key] = torch.corrcoef(torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)]))
+        correlations[key] = torch.corrcoef(
+            torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)])
+        )
     print("#### Only considering", kind, "on", subset)
     for key, corrs in correlations.items():
         print(f"{key} correlation {-corrs[0, 1].item():.2f}")
@@ -220,7 +230,12 @@ def multitask_prompt():
             test_evaluator(model)
 
             # finetune model on train (& eval on dev)
-            finetune_model(model, training_inputs, dev_evaluator, loss_fcn=losses.CosineSimilarityLoss)
+            finetune_model(
+                model,
+                training_inputs,
+                dev_evaluator,
+                loss_fcn=losses.CosineSimilarityLoss,
+            )
 
             # eval finetuned model on test
             print("Test set finetuned:")
@@ -234,8 +249,12 @@ def multitask_prompt():
 
             # write results
             model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
-            dev_evaluator.write_results(path=Path(f"multitask-prompt-{model_name_}-dev.csv"))
-            test_evaluator.write_results(path=Path(f"multitask-prompt-{model_name_}-test.csv"))
+            dev_evaluator.write_results(
+                path=Path(f"multitask-prompt-{model_name_}-dev.csv")
+            )
+            test_evaluator.write_results(
+                path=Path(f"multitask-prompt-{model_name_}-test.csv")
+            )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -282,7 +301,11 @@ def multitask_head():
             model.max_seq_length = 512
             model.add_module(
                 "3",
-                models.Dense(in_features=768, out_features=out_features * 7, activation_function=nn.Tanh()),
+                models.Dense(
+                    in_features=768,
+                    out_features=out_features * 7,
+                    activation_function=nn.Tanh(),
+                ),
             )
             model.add_module("4", ReshapeAndNormalize(num_labels=7))
             dev_evaluator.model_name = model_name
@@ -297,7 +320,12 @@ def multitask_head():
             test_evaluator(model)
 
             # finetune model on train (& eval on dev)
-            finetune_model(model, training_inputs, dev_evaluator, loss_fcn=CosineSimilarityLossForMultipleLabels)
+            finetune_model(
+                model,
+                training_inputs,
+                dev_evaluator,
+                loss_fcn=CosineSimilarityLossForMultipleLabels,
+            )
 
             # eval finetuned model on test
             print("Test set finetuned:")
@@ -310,14 +338,20 @@ def multitask_head():
             test_evaluator.print_results()
 
             # write results
-            dev_evaluator.write_results(path=Path(f"multitask-head-{out_features}-dev.csv"))
-            test_evaluator.write_results(path=Path(f"multitask-head-{out_features}-test.csv"))
+            dev_evaluator.write_results(
+                path=Path(f"multitask-head-{out_features}-dev.csv")
+            )
+            test_evaluator.write_results(
+                path=Path(f"multitask-head-{out_features}-test.csv")
+            )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
 
 
-def make_multitask_head_training_data(data: List[ArticlePair]) -> List[InputExampleWithMultipleLabels]:
+def make_multitask_head_training_data(
+    data: List[ArticlePair],
+) -> List[InputExampleWithMultipleLabels]:
     inputs: List[InputExample] = [
         InputExampleWithMultipleLabels(
             texts=[pair.article_1.text, pair.article_2.text],
@@ -345,7 +379,10 @@ def main():
     train, dev = dataset.random_split(0.8)
     # This is to safeguard against any rng shenanigans
     assert train[0].article_2.title == "The 20 Best Places to Travel in 2020"
-    assert train[1].article_2.title == "Shoplifters arrested for stealing beer and meat from Guelph grocery store"
+    assert (
+        train[1].article_2.title
+        == "Shoplifters arrested for stealing beer and meat from Guelph grocery store"
+    )
     training_inputs_per_dim = [make_training_data(train, dim) for dim in dimensions]
     dev_evaluator = CorrelationEvaluator(dev)
     test_evaluator = CorrelationEvaluator(test)
@@ -367,12 +404,20 @@ def main():
             test_evaluator(model)
 
             # iterate dimensions to fine-tune on
-            for i, (dim, training_inputs) in enumerate(zip(dimensions, training_inputs_per_dim)):
+            for i, (dim, training_inputs) in enumerate(
+                zip(dimensions, training_inputs_per_dim)
+            ):
                 dev_evaluator.score_column = i
 
                 # finetune model on train (& eval on dev)
                 print(f"Fine-tuning model {model_name_} for dimension {dim}")
-                finetune_model(model, training_inputs, dev_evaluator, loss_fcn=losses.CosineSimilarityLoss, name=f"finetuned-{model_name_}-{dim}")
+                finetune_model(
+                    model,
+                    training_inputs,
+                    dev_evaluator,
+                    loss_fcn=losses.CosineSimilarityLoss,
+                    name=f"finetuned-{model_name_}-{dim}",
+                )
 
                 # eval finetuned model on test
                 print("Test set finetuned:")
@@ -385,8 +430,12 @@ def main():
                 test_evaluator.print_results()
 
                 # write results
-                dev_evaluator.write_results(path=Path(result_dir,f"finetuned-{model_name_}-{dim}-dev.csv"))
-                test_evaluator.write_results(path=Path(result_dir, f"finetuned-{model_name_}-{dim}-test.csv"))
+                dev_evaluator.write_results(
+                    path=Path(result_dir, f"finetuned-{model_name_}-{dim}-dev.csv")
+                )
+                test_evaluator.write_results(
+                    path=Path(result_dir, f"finetuned-{model_name_}-{dim}-test.csv")
+                )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -400,8 +449,16 @@ def pretrained_eval_sweep():
 
 
 @app.command()
-def pretrained_eval(languages: Optional[List[str]] = None, datasplit: str = "train", translated: bool = False):
-    dataset = SemEvalDataset(Path(f"data/{datasplit}.csv"), Path(f"data/{datasplit}_data{'_translated' if translated else ''}"), langs=languages or "all")
+def pretrained_eval(
+    languages: Optional[List[str]] = None,
+    datasplit: str = "train",
+    translated: bool = False,
+):
+    dataset = SemEvalDataset(
+        Path(f"data/{datasplit}.csv"),
+        Path(f"data/{datasplit}_data{'_translated' if translated else ''}"),
+        langs=languages or "all",
+    )
     evaluator = CorrelationEvaluator(dataset)
     for model_name in train_models:
         try:
@@ -418,16 +475,22 @@ def pretrained_eval(languages: Optional[List[str]] = None, datasplit: str = "tra
                 evaluator.print_results()
 
                 # write results
-                model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
-                evaluator.write_results(path=Path(
-                    f"pretrained-{model_name_}-{datasplit}-{'_'.join(languages) if languages is not None else 'all'}{'-translated' if translated else ''}-seq_len={model.max_seq_length}.csv")
+                model_name_ = (
+                    model_name.split("/")[1] if "/" in model_name else model_name
+                )
+                evaluator.write_results(
+                    path=Path(
+                        f"pretrained-{model_name_}-{datasplit}-{'_'.join(languages) if languages is not None else 'all'}{'-translated' if translated else ''}-seq_len={model.max_seq_length}.csv"
+                    )
                 )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
 
 
-def make_training_data(data: List[ArticlePair], dim_name="overall") -> List[InputExample]:
+def make_training_data(
+    data: List[ArticlePair], dim_name="overall"
+) -> List[InputExample]:
     inputs: List[InputExample] = [
         InputExample(
             texts=[pair.article_1.text, pair.article_2.text],
@@ -449,7 +512,9 @@ def normalize_score_01(one2four: float):
 def finetune_model(
     model: SentenceTransformer,
     inputs: List[InputExample],
-    evaluator: CorrelationEvaluator | MultitaskPromptCorrelationEvaluator | MultitaskHeadCorrelationEvaluator,
+    evaluator: CorrelationEvaluator
+    | MultitaskPromptCorrelationEvaluator
+    | MultitaskHeadCorrelationEvaluator,
     loss_fcn: nn.Module,
     name: str,
 ):
@@ -472,14 +537,22 @@ class ReviewSimilarityDimensions(Enum):
 
     def review_comparison(self):
         return {
-            ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id != b.product_id and round(a.rating) == round(b.rating),
-            ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating) == round(b.rating),
-            ReviewSimilarityDimensions.SAME_PRODUCT: lambda a, b: a.product_id == b.product_id,
+            ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id
+            != b.product_id
+            and round(a.rating) == round(b.rating),
+            ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating)
+            == round(b.rating),
+            ReviewSimilarityDimensions.SAME_PRODUCT: lambda a, b: a.product_id
+            == b.product_id,
         }[self]
 
 
 @app.command()
-def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rating", split: float=1.0, sum_embeddings: bool = False):
+def reviews(
+    dimension: ReviewSimilarityDimensions = "different_product_same_rating",
+    split: float = 1.0,
+    sum_embeddings: bool = False,
+):
     """
     prams:
         split: randomly only use `split` fraction of the dataset
@@ -489,14 +562,21 @@ def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rati
     print(f"Using {split * 100}% of the data that is {len(dataset)} reviews.")
     embeddings_per_model = dict()
     gold_label_func = dimension.review_comparison()
-    for model_name in ["models/finetuned-LaBSE-tone", "models/finetuned-LaBSE-entities", "models/finetuned-LaBSE-overall", "sentence-transformers/LaBSE"]:
+    for model_name in [
+        "models/finetuned-LaBSE-tone",
+        "models/finetuned-LaBSE-entities",
+        "models/finetuned-LaBSE-overall",
+        "sentence-transformers/LaBSE",
+    ]:
         model = SentenceTransformer(model_name, device="cuda:0")
         os.makedirs("data/cache/", exist_ok=True)
         review_texts = [r.review or "" for r in dataset]
         cache_path = f"data/cache/{path.stem}-{model_name.split('/')[-1]}{'-split=' + str(split) if split != 1.0 else ''}.pt"
         if not os.path.exists(cache_path):
             # We need to take the numpy version first to move the data of the gpu
-            encoded = torch.from_numpy(model.encode(review_texts, show_progress_bar=True, batch_size=32))
+            encoded = torch.from_numpy(
+                model.encode(review_texts, show_progress_bar=True, batch_size=32)
+            )
             torch.save(encoded, cache_path)
         else:
             encoded = torch.load(cache_path, map_location="cpu")
@@ -504,23 +584,64 @@ def reviews(dimension: ReviewSimilarityDimensions = "different_product_same_rati
         map_sample = 0.1
         map_dataset = random_sample(dataset, map_sample)
         map_encoded = encoded[[r.embedding_index for r in map_dataset]]
-        print(f"MAP with {model_name}:", mean_average_precision([(1.0, map_encoded)], map_dataset, gold_label=gold_label_func, sum_embeddings=sum_embeddings))
+        print(
+            f"MAP with {model_name}:",
+            mean_average_precision(
+                [(1.0, map_encoded)],
+                map_dataset,
+                gold_label=gold_label_func,
+                sum_embeddings=sum_embeddings,
+            ),
+        )
         embeddings_per_model[model_name] = encoded
     map_dataset = random_sample(dataset, map_sample)
     map_encoded = [
-        (1.0, embeddings_per_model["models/finetuned-LaBSE-tone"][[r.embedding_index for r in map_dataset]]),
-        (-1.0, embeddings_per_model["models/finetuned-LaBSE-overall"][[r.embedding_index for r in map_dataset]]),
+        (
+            1.0,
+            embeddings_per_model["models/finetuned-LaBSE-tone"][
+                [r.embedding_index for r in map_dataset]
+            ],
+        ),
+        (
+            -1.0,
+            embeddings_per_model["models/finetuned-LaBSE-overall"][
+                [r.embedding_index for r in map_dataset]
+            ],
+        ),
     ]
-    print(f"MAP with both", mean_average_precision(map_encoded, map_dataset, gold_label=gold_label_func, sum_embeddings=sum_embeddings))
-    print(f"MAP random", mean_average_precision([(1.0, torch.rand_like(map_encoded[0][1]))], map_dataset, gold_label=gold_label_func, sum_embeddings=sum_embeddings))
+    print(
+        f"MAP with both",
+        mean_average_precision(
+            map_encoded,
+            map_dataset,
+            gold_label=gold_label_func,
+            sum_embeddings=sum_embeddings,
+        ),
+    )
+    print(
+        f"MAP random",
+        mean_average_precision(
+            [(1.0, torch.rand_like(map_encoded[0][1]))],
+            map_dataset,
+            gold_label=gold_label_func,
+            sum_embeddings=sum_embeddings,
+        ),
+    )
 
 
 def random_sample(dataset, frac, seed=42):
-    dataset, _ = torch.utils.data.random_split(dataset, [frac, 1 - frac], generator=torch.Generator().manual_seed(seed))
+    dataset, _ = torch.utils.data.random_split(
+        dataset, [frac, 1 - frac], generator=torch.Generator().manual_seed(seed)
+    )
     return dataset
 
 
-def mean_average_precision(weighted_embeddings, dataset, gold_label=lambda x, y: round(x.rating) == round(y.rating), sum_embeddings=False):
+def mean_average_precision(
+    weighted_embeddings,
+    dataset,
+    gold_label=lambda x, y: round(x.rating) == round(y.rating),
+    sum_embeddings=False,
+):
     sims = None
     if not sum_embeddings:
         for weight, embeddings in weighted_embeddings:
@@ -563,32 +684,57 @@ def poetry(all_combinations: bool = False, subtract_overall: bool = False):
     for dimension in ["content", "form", "style", "emotion", "overall"]:
         overall_different = dataset.with_unambigious_dimension(dimension)
         model_name = model_dict.get(dimension, "sentence-transformers/LaBSE")
-        for model_name in [model_name] if not all_combinations else list(model_dict.values()):
+        for model_name in (
+            [model_name] if not all_combinations else list(model_dict.values())
+        ):
             print("Using", model_name)
             model = SentenceTransformer(model_name)
             *texts, labels = PoetryDataset.texts_and_labels(overall_different)
-            anchor_embs, left_embs, right_embs = [model.encode(collection, convert_to_tensor=True) for collection in texts]
-            left_anchor_similarity = torch.nn.functional.cosine_similarity(left_embs, anchor_embs)
-            right_anchor_similarity = torch.nn.functional.cosine_similarity(right_embs, anchor_embs)
+            anchor_embs, left_embs, right_embs = [
+                model.encode(collection, convert_to_tensor=True) for collection in texts
+            ]
+            left_anchor_similarity = torch.nn.functional.cosine_similarity(
+                left_embs, anchor_embs
+            )
+            right_anchor_similarity = torch.nn.functional.cosine_similarity(
+                right_embs, anchor_embs
+            )
             if subtract_overall:
-                overall_anchor_embs, overall_left_embs, overall_right_embs = [overall_model.encode(collection, convert_to_tensor=True) for collection in texts]
-                overall_left_anchor_similarity = torch.nn.functional.cosine_similarity(overall_left_embs, overall_anchor_embs)
-                overall_right_anchor_similarity = torch.nn.functional.cosine_similarity(overall_right_embs, overall_anchor_embs)
+                overall_anchor_embs, overall_left_embs, overall_right_embs = [
+                    overall_model.encode(collection, convert_to_tensor=True)
+                    for collection in texts
+                ]
+                overall_left_anchor_similarity = torch.nn.functional.cosine_similarity(
+                    overall_left_embs, overall_anchor_embs
+                )
+                overall_right_anchor_similarity = torch.nn.functional.cosine_similarity(
+                    overall_right_embs, overall_anchor_embs
+                )
             else:
-                overall_left_anchor_similarity = torch.zeros_like(left_anchor_similarity)
-                overall_right_anchor_similarity = torch.zeros_like(right_anchor_similarity)
+                overall_left_anchor_similarity = torch.zeros_like(
+                    left_anchor_similarity
+                )
+                overall_right_anchor_similarity = torch.zeros_like(
+                    right_anchor_similarity
+                )
             predictions = (
-                left_anchor_similarity + (overall_weight * overall_left_anchor_similarity) <
-                right_anchor_similarity + (overall_weight * overall_right_anchor_similarity)
+                left_anchor_similarity
+                + (overall_weight * overall_left_anchor_similarity)
+                < right_anchor_similarity
+                + (overall_weight * overall_right_anchor_similarity)
             ).cpu()
             label_tensor = torch.tensor(labels, dtype=torch.bool)
-            balanced_accuracy = sklearn.metrics.balanced_accuracy_score(label_tensor, predictions)
+            balanced_accuracy = sklearn.metrics.balanced_accuracy_score(
+                label_tensor, predictions
+            )
             print("Accuracy on", dimension, f"{balanced_accuracy:.02f}")
 
 
 @app.command()
 def sentiment():
-    dataset = SentimentDataset("data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.english.txt")
+    dataset = SentimentDataset(
+        "data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.english.txt"
+    )
     model_dict = {
         "narrative": "models/finetuned-LaBSE-narrative",
         "style": "models/finetuned-LaBSE-style",
@@ -599,11 +745,17 @@ def sentiment():
     }
     for name, model_id in model_dict.items():
         model = SentenceTransformer(model_id)
-        encoded = model.encode([text for _label, text in dataset], convert_to_tensor=True, show_progress_bar=True)
+        encoded = model.encode(
+            [text for _label, text in dataset],
+            convert_to_tensor=True,
+            show_progress_bar=True,
+        )
         print("Using model", name)
         dist_matrix = 1 - cos_sim(encoded, encoded).cpu()
         dist_matrix.fill_diagonal_(0)
-        silhouette_score = sklearn.metrics.silhouette_score(dist_matrix, [label.value for label, _text in dataset], metric="precomputed")
+        silhouette_score = sklearn.metrics.silhouette_score(
+            dist_matrix, [label.value for label, _text in dataset], metric="precomputed"
+        )
         print(f"Silhouette score {silhouette_score:.4f}")
 
 

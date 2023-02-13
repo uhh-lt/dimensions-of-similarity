@@ -1,13 +1,14 @@
-import random
-from torch.utils.data.dataset import Dataset
-from dataclasses import dataclass
 import itertools
-from typing import Tuple, List, Optional, Union
+import random
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Union
+
 import more_itertools
+from torch.utils.data.dataset import Dataset
 
 
 @dataclass
-class Review():
+class Review:
     rating: float
     product_id: str
     helpfulness: Tuple[Union[int, None], int]
@@ -20,11 +21,16 @@ class Review():
 
     @classmethod
     def from_lines(cls, lines: List[str], embedding_index: int) -> "Review":
-        kwargs = {k.lower().strip(): v.strip() for k, v in (l.split(": ", 1) for l in lines)}
+        kwargs = {
+            k.lower().strip(): v.strip() for k, v in (l.split(": ", 1) for l in lines)
+        }
         return cls(
             rating=float(kwargs["rating"].split(" ", 1)[0]),
             product_id=kwargs["product_id"],
-            helpfulness=tuple(int(x.replace(",", "")) if x != "out" else None for x in kwargs["helpfulness"].split("/", 1)),
+            helpfulness=tuple(
+                int(x.replace(",", "")) if x != "out" else None
+                for x in kwargs["helpfulness"].split("/", 1)
+            ),
             id=kwargs["id"],
             embedding_index=embedding_index,
             review_by=kwargs["review_by"],
@@ -39,7 +45,11 @@ class ReviewDataset(Dataset):
         num_fields = 8
         self.reviews: List[Review] = []
         in_file = open(path)
-        iterator = more_itertools.windowed((line for line in in_file if len(line.strip()) > 0), num_fields, step=num_fields)
+        iterator = more_itertools.windowed(
+            (line for line in in_file if len(line.strip()) > 0),
+            num_fields,
+            step=num_fields,
+        )
         i = 0
         randomizer = random.Random(seed)
         for entry in iterator:
@@ -54,7 +64,7 @@ class ReviewDataset(Dataset):
     def grouped_by_rating(self):
         return self.grouped_by_attr("rating", lambda x: round(x))
 
-    def grouped_by_attr(self, attr, round_function = lambda x: x):
+    def grouped_by_attr(self, attr, round_function=lambda x: x):
         keyfunc = lambda r: round_function(getattr(r, attr))
         return itertools.groupby(sorted(self.reviews, key=keyfunc), key=keyfunc)
 
