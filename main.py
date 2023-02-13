@@ -516,8 +516,7 @@ def select_all_other_embeddings(embeddings, indexes):
 
 
 @app.command()
-def poetry(all_combinations: bool = False):
-    import sklearn.metrics
+def poetry(all_combinations: bool = False, subtract_overall: bool = False):
     dataset = PoetryDataset("data/jcls2022-poem-similarity")
     model_dict = {
         "content": "models/finetuned-LaBSE-narrative",
@@ -525,27 +524,30 @@ def poetry(all_combinations: bool = False):
         "emotion": "models/finetuned-LaBSE-tone",
         "overall": "models/finetuned-LaBSE-overall",
     }
+    overall_model = SentenceTransformer(model_dict["overall"])
+    overall_weight = -1
     for dimension in ["content", "form", "style", "emotion", "overall"]:
         overall_different = dataset.with_unambigious_dimension(dimension)
         model_name = model_dict.get(dimension, "sentence-transformers/LaBSE")
         for model_name in [model_name] if not all_combinations else list(model_dict.values()):
             print("Using", model_name)
             model = SentenceTransformer(model_name)
-            anchors = []
-            lefts = []
-            rights = []
-            labels = []
-            for doc in overall_different:
-                rights.append(doc.right_text)
-                lefts.append(doc.left_text)
-                anchors.append(doc.base_text)
-                labels.append(doc.overall.value)
-            anchor_embs = model.encode(anchors, convert_to_tensor=True)
-            left_embs = model.encode(lefts, convert_to_tensor=True)
-            right_embs = model.encode(rights, convert_to_tensor=True)
-            predictions = (torch.nn.functional.cosine_similarity(left_embs, anchor_embs) < torch.nn.functional.cosine_similarity(right_embs, anchor_embs)).cpu()
+            *texts, labels = PoetryDataset.texts_and_labels(overall_different)
+            anchor_embs, left_embs, right_embs = [model.encode(collection, convert_to_tensor=True) for collection in texts]
+            left_anchor_similarity = torch.nn.functional.cosine_similarity(left_embs, anchor_embs)
+            right_anchor_similarity = torch.nn.functional.cosine_similarity(right_embs, anchor_embs)
+            if subtract_overall:
+                overall_anchor_embs, overall_left_embs, overall_right_embs = [overall_model.encode(collection, convert_to_tensor=True) for collection in texts]
+                overall_left_anchor_similarity = torch.nn.functional.cosine_similarity(overall_left_embs, overall_anchor_embs)
+                overall_right_anchor_similarity = torch.nn.functional.cosine_similarity(overall_right_embs, overall_anchor_embs)
+            else:
+                overall_left_anchor_similarity = torch.zeros_like(left_anchor_similarity)
+                overall_right_anchor_similarity = torch.zeros_like(right_anchor_similarity)
+            predictions = (
+                left_anchor_similarity + (overall_weight * overall_left_anchor_similarity) <
+                right_anchor_similarity + (overall_weight * overall_right_anchor_similarity)
+            ).cpu()
             label_tensor = torch.tensor(labels, dtype=torch.bool)
-            correct = (label_tensor == predictions)
             balanced_accuracy = sklearn.metrics.balanced_accuracy_score(label_tensor, predictions)
             print("Accuracy on", dimension, f"{balanced_accuracy:.02f}")
 

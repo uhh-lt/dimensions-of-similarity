@@ -114,6 +114,19 @@ class PoetryDataset(Dataset):
     def with_unambigious_dimension(self, dimension) -> Subset:
         return Subset(self, [i for i in range(len(self)) if getattr(self[i], dimension) != Direction.SAME])
 
+    @classmethod
+    def texts_and_labels(cls, instance):
+        anchors = []
+        lefts = []
+        rights = []
+        labels = []
+        for doc in instance:
+            rights.append(doc.right_text)
+            lefts.append(doc.left_text)
+            anchors.append(doc.base_text)
+            labels.append(doc.overall.value)
+        return anchors, lefts, rights, labels
+
 
 
 if __name__ == "__main__":

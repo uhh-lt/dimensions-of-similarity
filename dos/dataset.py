@@ -49,6 +49,9 @@ class ArticlePair():
     def id_2(self) -> str:
         return self.pair_id.split("_")[1]
 
+    def get_similarity_dict(self) -> Dict[str, float]:
+        return {s : getattr(self, s) for s in ["geography", "entities", "time", "narrative", "overall", "style", "tone"]}
+
 
 class SemEvalDataset(Dataset):
     def __init__(self, csv_path: Path, json_path: Path, langs: Union[List[str], str] = "all"):
