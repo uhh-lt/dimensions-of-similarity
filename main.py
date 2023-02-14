@@ -20,8 +20,8 @@ from sentence_transformers.util import cos_sim
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from dos.core_dataset import CoreDataset
 
+from dos.core_dataset import CoreDataset
 from dos.cosine_loss_multiple_labels import CosineSimilarityLossForMultipleLabels
 from dos.dataset import ArticlePair, SemEvalDataset
 from dos.evaluator import (
@@ -170,11 +170,15 @@ def fasttext_similarity(
     for pair, i in zip(current_dataset, range(limit) if limit is not None else count()):
         verbs_a = [
             fasttext_emb
-            for spacy_emb, fasttext_emb in extract_embeddings(pair.article_1.text, embedder, kind.get_filter())
+            for spacy_emb, fasttext_emb in extract_embeddings(
+                pair.article_1.text, embedder, kind.get_filter()
+            )
         ]
         verbs_b = [
             fasttext_emb
-            for spacy_emb, fasttext_emb in extract_embeddings(pair.article_2.text, embedder, kind.get_filter())
+            for spacy_emb, fasttext_emb in extract_embeddings(
+                pair.article_2.text, embedder, kind.get_filter()
+            )
         ]
         if len(verbs_a) == 0 or len(verbs_b) == 0:
             continue
@@ -195,7 +199,9 @@ def fasttext_similarity(
             gold_sims[key].append(value)
     correlations = {}
     for key, gold_values in gold_sims.items():
-        correlations[key] = torch.corrcoef(torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)]))
+        correlations[key] = torch.corrcoef(
+            torch.stack([torch.tensor(predicted_sims), torch.tensor(gold_values)])
+        )
     print("#### Only considering", kind, "on", subset)
     for key, corrs in correlations.items():
         print(f"{key} correlation {-corrs[0, 1].item():.2f}")
@@ -245,8 +251,12 @@ def multitask_prompt():
 
             # write results
             model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
-            dev_evaluator.write_results(path=Path(f"multitask-prompt-{model_name_}-dev.csv"))
-            test_evaluator.write_results(path=Path(f"multitask-prompt-{model_name_}-test.csv"))
+            dev_evaluator.write_results(
+                path=Path(f"multitask-prompt-{model_name_}-dev.csv")
+            )
+            test_evaluator.write_results(
+                path=Path(f"multitask-prompt-{model_name_}-test.csv")
+            )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -330,8 +340,12 @@ def multitask_head():
             test_evaluator.print_results()
 
             # write results
-            dev_evaluator.write_results(path=Path(f"multitask-head-{out_features}-dev.csv"))
-            test_evaluator.write_results(path=Path(f"multitask-head-{out_features}-test.csv"))
+            dev_evaluator.write_results(
+                path=Path(f"multitask-head-{out_features}-dev.csv")
+            )
+            test_evaluator.write_results(
+                path=Path(f"multitask-head-{out_features}-test.csv")
+            )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -367,7 +381,10 @@ def main():
     train, dev = dataset.random_split(0.8)
     # This is to safeguard against any rng shenanigans
     assert train[0].article_2.title == "The 20 Best Places to Travel in 2020"
-    assert train[1].article_2.title == "Shoplifters arrested for stealing beer and meat from Guelph grocery store"
+    assert (
+        train[1].article_2.title
+        == "Shoplifters arrested for stealing beer and meat from Guelph grocery store"
+    )
     training_inputs_per_dim = [make_training_data(train, dim) for dim in dimensions]
     dev_evaluator = CorrelationEvaluator(dev)
     test_evaluator = CorrelationEvaluator(test)
@@ -389,7 +406,9 @@ def main():
             test_evaluator(model)
 
             # iterate dimensions to fine-tune on
-            for i, (dim, training_inputs) in enumerate(zip(dimensions, training_inputs_per_dim)):
+            for i, (dim, training_inputs) in enumerate(
+                zip(dimensions, training_inputs_per_dim)
+            ):
                 dev_evaluator.score_column = i
 
                 # finetune model on train (& eval on dev)
@@ -413,8 +432,12 @@ def main():
                 test_evaluator.print_results()
 
                 # write results
-                dev_evaluator.write_results(path=Path(result_dir, f"finetuned-{model_name_}-{dim}-dev.csv"))
-                test_evaluator.write_results(path=Path(result_dir, f"finetuned-{model_name_}-{dim}-test.csv"))
+                dev_evaluator.write_results(
+                    path=Path(result_dir, f"finetuned-{model_name_}-{dim}-dev.csv")
+                )
+                test_evaluator.write_results(
+                    path=Path(result_dir, f"finetuned-{model_name_}-{dim}-test.csv")
+                )
         except Exception as e:
             print("Error evaluating", model_name)
             print(e)
@@ -454,7 +477,9 @@ def pretrained_eval(
                 evaluator.print_results()
 
                 # write results
-                model_name_ = model_name.split("/")[1] if "/" in model_name else model_name
+                model_name_ = (
+                    model_name.split("/")[1] if "/" in model_name else model_name
+                )
                 evaluator.write_results(
                     path=Path(
                         f"pretrained-{model_name_}-{datasplit}-{'_'.join(languages) if languages is not None else 'all'}{'-translated' if translated else ''}-seq_len={model.max_seq_length}.csv"
@@ -465,7 +490,9 @@ def pretrained_eval(
             print(e)
 
 
-def make_training_data(data: List[ArticlePair], dim_name="overall") -> List[InputExample]:
+def make_training_data(
+    data: List[ArticlePair], dim_name="overall"
+) -> List[InputExample]:
     inputs: List[InputExample] = [
         InputExample(
             texts=[pair.article_1.text, pair.article_2.text],
@@ -487,7 +514,9 @@ def normalize_score_01(one2four: float):
 def finetune_model(
     model: SentenceTransformer,
     inputs: List[InputExample],
-    evaluator: CorrelationEvaluator | MultitaskPromptCorrelationEvaluator | MultitaskHeadCorrelationEvaluator,
+    evaluator: CorrelationEvaluator
+    | MultitaskPromptCorrelationEvaluator
+    | MultitaskHeadCorrelationEvaluator,
     loss_fcn: nn.Module,
     name: str,
 ):
@@ -510,10 +539,13 @@ class ReviewSimilarityDimensions(Enum):
 
     def review_comparison(self):
         return {
-            ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id != b.product_id
+            ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id
+            != b.product_id
             and round(a.rating) == round(b.rating),
-            ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating) == round(b.rating),
-            ReviewSimilarityDimensions.SAME_PRODUCT: lambda a, b: a.product_id == b.product_id,
+            ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating)
+            == round(b.rating),
+            ReviewSimilarityDimensions.SAME_PRODUCT: lambda a, b: a.product_id
+            == b.product_id,
         }[self]
 
 
@@ -553,12 +585,12 @@ def reviews(
         model = SentenceTransformer(model_name, device="cuda:0")
         os.makedirs("data/cache/", exist_ok=True)
         review_texts = [r.review or "" for r in dataset]
-        cache_path = (
-            f"data/cache/{path.stem}-{model_name.split('/')[-1]}{'-split=' + str(split) if split != 1.0 else ''}.pt"
-        )
+        cache_path = f"data/cache/{path.stem}-{model_name.split('/')[-1]}{'-split=' + str(split) if split != 1.0 else ''}.pt"
         if not os.path.exists(cache_path):
             # We need to take the numpy version first to move the data of the gpu
-            encoded = torch.from_numpy(model.encode(review_texts, show_progress_bar=True, batch_size=32))
+            encoded = torch.from_numpy(
+                model.encode(review_texts, show_progress_bar=True, batch_size=32)
+            )
             torch.save(encoded, cache_path)
         else:
             encoded = torch.load(cache_path, map_location="cpu")
@@ -573,7 +605,9 @@ def reviews(
         )
         print(f"MAP with {model_name}:", precisions["map"])
         embeddings_per_model[model_name] = encoded
-        csv_writer.writerow({"name": model_name, **{k: f"{v:.3f}" for k, v in precisions.items()}})
+        csv_writer.writerow(
+            {"name": model_name, **{k: f"{v:.3f}" for k, v in precisions.items()}}
+        )
     map_dataset = random_sample(dataset, map_sample)
     for combination in [
         "tone - overall",
@@ -586,40 +620,54 @@ def reviews(
             map_encoded = [
                 (
                     1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-tone"][[r.embedding_index for r in map_dataset]],
+                    embeddings_per_model["models/finetuned-LaBSE-tone"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
                 ),
                 (
                     -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-overall"][[r.embedding_index for r in map_dataset]],
+                    embeddings_per_model["models/finetuned-LaBSE-overall"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
                 ),
             ]
         elif combination == "tone - overall - entites":
             map_encoded = [
                 (
                     1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-tone"][[r.embedding_index for r in map_dataset]],
+                    embeddings_per_model["models/finetuned-LaBSE-tone"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
                 ),
                 (
                     -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-overall"][[r.embedding_index for r in map_dataset]],
+                    embeddings_per_model["models/finetuned-LaBSE-overall"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
                 ),
                 (
                     -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-entities"][[r.embedding_index for r in map_dataset]],
+                    embeddings_per_model["models/finetuned-LaBSE-entities"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
                 ),
             ]
         elif combination == "-overall":
             map_encoded = [
                 (
                     -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-overall"][[r.embedding_index for r in map_dataset]],
+                    embeddings_per_model["models/finetuned-LaBSE-overall"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
                 ),
             ]
         elif combination == "-entities":
             map_encoded = [
                 (
                     -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-entities"][[r.embedding_index for r in map_dataset]],
+                    embeddings_per_model["models/finetuned-LaBSE-entities"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
                 ),
             ]
         elif combination == "random":
@@ -649,7 +697,9 @@ def reviews(
 
 
 def random_sample(dataset, frac, seed=42):
-    dataset, _ = torch.utils.data.random_split(dataset, [frac, 1 - frac], generator=torch.Generator().manual_seed(seed))
+    dataset, _ = torch.utils.data.random_split(
+        dataset, [frac, 1 - frac], generator=torch.Generator().manual_seed(seed)
+    )
     return dataset
 
 
@@ -675,11 +725,18 @@ def get_precisions(
     r_precisions = []
     average_precisions = []
     for i, sim_line in enumerate(sims):
-        labels = torch.tensor([gold_label(item, dataset[i]) if j != i else False for j, item in enumerate(dataset)])
+        labels = torch.tensor(
+            [
+                gold_label(item, dataset[i]) if j != i else False
+                for j, item in enumerate(dataset)
+            ]
+        )
         for k in ks:
             indices = sim_line.topk(k).indices
-            average_precisions.append(sklearn.metrics.average_precision_score(labels, sim_line))
-            precisions_at_k[k].append(labels[indices].sum() / len(indices))
+            average_precisions.append(
+                sklearn.metrics.average_precision_score(labels, sim_line)
+            )
+            precisions_at_k[k].append(labels[indices].sum() / k)
         indices = sim_line.topk(labels.sum()).indices
         r_precisions.append(labels[indices].sum() / labels.sum())
     out = {
@@ -687,7 +744,10 @@ def get_precisions(
         "map": sum(average_precisions) / len(average_precisions),
     }
     out.update(
-        {f"precision@{k}": (sum(precisions) / len(precisions)).item() for k, precisions in precisions_at_k.items()}
+        {
+            f"precision@{k}": (sum(precisions) / len(precisions)).item()
+            for k, precisions in precisions_at_k.items()
+        }
     )
     return out
 
@@ -695,9 +755,9 @@ def get_precisions(
 def select_all_other_embeddings(embeddings, indexes):
     mask = torch.ones(embeddings.shape[0])
     mask[indexes] = 0
-    return embeddings.masked_select(mask.unsqueeze(-1).to(dtype=torch.bool, device=embeddings.device)).reshape(
-        -1, embeddings.shape[-1]
-    )
+    return embeddings.masked_select(
+        mask.unsqueeze(-1).to(dtype=torch.bool, device=embeddings.device)
+    ).reshape(-1, embeddings.shape[-1])
 
 
 @app.command()
@@ -714,18 +774,25 @@ def poetry(all_combinations: bool = False, subtract_overall: bool = False):
     for dimension in ["content", "form", "style", "emotion", "overall"]:
         overall_different = dataset.with_unambigious_dimension(dimension)
         model_name = model_dict.get(dimension, "sentence-transformers/LaBSE")
-        for model_name in [model_name] if not all_combinations else list(model_dict.values()):
+        for model_name in (
+            [model_name] if not all_combinations else list(model_dict.values())
+        ):
             print("Using", model_name)
             model = SentenceTransformer(model_name)
             *texts, labels = PoetryDataset.texts_and_labels(overall_different)
             anchor_embs, left_embs, right_embs = [
                 model.encode(collection, convert_to_tensor=True) for collection in texts
             ]
-            left_anchor_similarity = torch.nn.functional.cosine_similarity(left_embs, anchor_embs)
-            right_anchor_similarity = torch.nn.functional.cosine_similarity(right_embs, anchor_embs)
+            left_anchor_similarity = torch.nn.functional.cosine_similarity(
+                left_embs, anchor_embs
+            )
+            right_anchor_similarity = torch.nn.functional.cosine_similarity(
+                right_embs, anchor_embs
+            )
             if subtract_overall:
                 overall_anchor_embs, overall_left_embs, overall_right_embs = [
-                    overall_model.encode(collection, convert_to_tensor=True) for collection in texts
+                    overall_model.encode(collection, convert_to_tensor=True)
+                    for collection in texts
                 ]
                 overall_left_anchor_similarity = torch.nn.functional.cosine_similarity(
                     overall_left_embs, overall_anchor_embs
@@ -734,14 +801,22 @@ def poetry(all_combinations: bool = False, subtract_overall: bool = False):
                     overall_right_embs, overall_anchor_embs
                 )
             else:
-                overall_left_anchor_similarity = torch.zeros_like(left_anchor_similarity)
-                overall_right_anchor_similarity = torch.zeros_like(right_anchor_similarity)
+                overall_left_anchor_similarity = torch.zeros_like(
+                    left_anchor_similarity
+                )
+                overall_right_anchor_similarity = torch.zeros_like(
+                    right_anchor_similarity
+                )
             predictions = (
-                left_anchor_similarity + (overall_weight * overall_left_anchor_similarity)
-                < right_anchor_similarity + (overall_weight * overall_right_anchor_similarity)
+                left_anchor_similarity
+                + (overall_weight * overall_left_anchor_similarity)
+                < right_anchor_similarity
+                + (overall_weight * overall_right_anchor_similarity)
             ).cpu()
             label_tensor = torch.tensor(labels, dtype=torch.bool)
-            balanced_accuracy = sklearn.metrics.balanced_accuracy_score(label_tensor, predictions)
+            balanced_accuracy = sklearn.metrics.balanced_accuracy_score(
+                label_tensor, predictions
+            )
             print("Accuracy on", dimension, f"{balanced_accuracy:.02f}")
 
 
@@ -760,8 +835,6 @@ def sentiment(lang: str):
         "unfinetuned": "sentence-transformers/LaBSE",
     }
     print("Dataset size", len(dataset))
-    precision_k = 100
-    result_file = open("sentiments.csv", "w")
     csv_writer = DictWriter(
         open(f"sentiments-{lang}.csv", "w"),
         fieldnames=[
@@ -775,14 +848,6 @@ def sentiment(lang: str):
         ],
     )
     csv_writer.writeheader()
-    print(
-        "name",
-        "silhouette score",
-        f"precision@{precision_k}",
-        "R-precision",
-        sep=",",
-        file=result_file,
-    )
     for name, model_id in model_dict.items():
         model = SentenceTransformer(model_id)
         encoded = model.encode(
@@ -812,7 +877,10 @@ def sentiment(lang: str):
 
 @app.command()
 def core(tag1: str, tag2: str):
-    dataset = CoreDataset(train_path="./data/train.tsv", test_path="./data/test.tsv")
+    dataset = CoreDataset(
+        train_path="./data/CORE-corpus/train.tsv.gz",
+        test_path="./data/CORE-corpus/test.tsv.gz",
+    )
     model_dict = {
         "style": "models/finetuned-LaBSE-style",
         "tone": "models/finetuned-LaBSE-tone",
@@ -823,9 +891,6 @@ def core(tag1: str, tag2: str):
     }
     print("Dataset size", len(dataset))
 
-    precision_k = 100
-
-    result_file = open("core.csv", "w")
     csv_writer = DictWriter(
         open(f"core-{tag1}-{tag2}.csv", "w"),
         fieldnames=[
@@ -839,15 +904,6 @@ def core(tag1: str, tag2: str):
         ],
     )
     csv_writer.writeheader()
-
-    print(
-        "name",
-        "silhouette score",
-        f"precision@{precision_k}",
-        "R-precision",
-        sep=",",
-        file=result_file,
-    )
     for name, model_id in model_dict.items():
         # load model
         model = SentenceTransformer(model_id, device="cuda:0")
@@ -883,16 +939,24 @@ def core(tag1: str, tag2: str):
             torch.save(encoded_tag2, cache_path_tag_2)
         else:
             encoded_tag2 = torch.load(cache_path_tag_2)
-
-        dist_matrix = 1 - cos_sim(encoded_tag1, encoded_tag2).cpu()
+        encoded = torch.cat((encoded_tag1, encoded_tag2))
+        dist_matrix = 2 - cos_sim(encoded, encoded).cpu()
         dist_matrix.fill_diagonal_(0)
+        tags = [tag1 for _ in dataset.documents_by_tag(tag1)] + [
+            tag2 for _ in dataset.documents_by_tag(tag2)
+        ]
+        print("Calculating silhouette score")
         silhouette_score = sklearn.metrics.silhouette_score(
-            dist_matrix, [tag2 for _ in dataset.documents_by_tag(tag2)], metric="precomputed"
+            dist_matrix,
+            tags,
+            metric="precomputed",
         )
+        print(silhouette_score)
+        print("Calculating precisions")
         precisions = get_precisions(
-            [(1.0, encoded_tag1.cpu())],
-            dataset,
-            gold_label=lambda x, y: x[0] == y[0],
+            [(1.0, encoded)],
+            tags,
+            gold_label=lambda x, y: x == y,
             ks=[5, 10, 100],
         )
         csv_writer.writerow(

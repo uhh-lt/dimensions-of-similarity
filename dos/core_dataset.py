@@ -1,5 +1,7 @@
+import gzip
 from dataclasses import dataclass
 from typing import List, Optional
+
 from torch.utils.data.dataset import Dataset
 
 
@@ -22,7 +24,9 @@ class CoreDocument:
 
 class CoreDataset(Dataset):
     def __init__(self, train_path: str, test_path: str):
-        self.documents = self.__create_documents__(train_path) + self.__create_documents__(test_path)
+        self.documents = self.__create_documents__(
+            train_path
+        ) + self.__create_documents__(test_path)
         self.id2document = {document.index: document for document in self.documents}
         self.tag2documents = {}
         for document in self.documents:
@@ -33,7 +37,7 @@ class CoreDataset(Dataset):
 
     def __create_documents__(self, path: str) -> List[CoreDocument]:
         documents = []
-        with open(path, "r", encoding="utf-8") as f:
+        with gzip.open(path, "rt", encoding="utf-8") as f:
             lines = f.readlines()
             for line in lines:
                 line = line.strip()
