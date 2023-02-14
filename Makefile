@@ -10,5 +10,5 @@ types:
 	python -m mypy $(SRC_DIR) $(TOP_LEVEL_PYTHON_FILES)
 
 install-hooks:
-	printf "#!/bin/sh\npython -m black --check $(TOP_LEVEL_PYTHON_FILES) $(SRC_DIR) && venv/bin/python -m isort --profile black --check .\n" > .git/hooks/pre-commit
+	printf "#!/bin/sh\npython -m black --check $(TOP_LEVEL_PYTHON_FILES) $(SRC_DIR) && python -m isort --profile black --check .\n" > .git/hooks/pre-commit
 	chmod +x .git/hooks/pre-commit
