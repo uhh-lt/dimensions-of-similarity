@@ -58,8 +58,20 @@ class ReviewDataset(Dataset):
             self.reviews.append(Review.from_lines(entry, i))
             i += 1
 
+    def description(self):
+        return "\n".join(
+            (
+                f"Number of reviews: {len(self)}",
+                f"Number of unique products: {len(list(self.grouped_by_product()))}",
+                f"Rating occurences:",
+                "\n".join(
+                    [f"\t{k}: {len(list(v))}" for k, v in self.grouped_by_rating()]
+                ),
+            )
+        )
+
     def grouped_by_product(self):
-        return self.grouped_by_attr("product")
+        return self.grouped_by_attr("product_id")
 
     def grouped_by_rating(self):
         return self.grouped_by_attr("rating", lambda x: round(x))

@@ -2,6 +2,7 @@ import dataclasses
 import os
 import random
 from collections import defaultdict
+from csv import DictWriter
 from enum import Enum
 from itertools import count
 from pathlib import Path
@@ -551,7 +552,6 @@ class ReviewSimilarityDimensions(Enum):
 def reviews(
     dimension: ReviewSimilarityDimensions = "different_product_same_rating",
     split: float = 1.0,
-    sum_embeddings: bool = False,
 ):
     """
     prams:
@@ -559,9 +559,22 @@ def reviews(
     """
     path = Path("data/amazon_reviews/amazon_80k.txt")
     dataset = ReviewDataset(path, sample=split)
+    print(dataset.description())
     print(f"Using {split * 100}% of the data that is {len(dataset)} reviews.")
     embeddings_per_model = dict()
     gold_label_func = dimension.review_comparison()
+    csv_writer = DictWriter(
+        open(f"reviews-{split}.csv", "w"),
+        fieldnames=[
+            "name",
+            "map",
+            "r-precision",
+            "precision@5",
+            "precision@10",
+            "precision@100",
+        ],
+    )
+    csv_writer.writeheader()
     for model_name in [
         "models/finetuned-LaBSE-tone",
         "models/finetuned-LaBSE-entities",
@@ -580,53 +593,106 @@ def reviews(
             torch.save(encoded, cache_path)
         else:
             encoded = torch.load(cache_path, map_location="cpu")
-        review_embs = {}
         map_sample = 0.1
         map_dataset = random_sample(dataset, map_sample)
         map_encoded = encoded[[r.embedding_index for r in map_dataset]]
-        print(
-            f"MAP with {model_name}:",
-            mean_average_precision(
-                [(1.0, map_encoded)],
-                map_dataset,
-                gold_label=gold_label_func,
-                sum_embeddings=sum_embeddings,
-            ),
+        precisions = get_precisions(
+            [(1.0, map_encoded)],
+            map_dataset,
+            gold_label=gold_label_func,
+            ks=[5, 10, 100],
         )
+        print(f"MAP with {model_name}:", precisions["map"])
         embeddings_per_model[model_name] = encoded
+        csv_writer.writerow(
+            {"name": model_name, **{k: f"{v:.3f}" for k, v in precisions.items()}}
+        )
     map_dataset = random_sample(dataset, map_sample)
-    map_encoded = [
-        (
-            1.0,
-            embeddings_per_model["models/finetuned-LaBSE-tone"][
-                [r.embedding_index for r in map_dataset]
-            ],
-        ),
-        (
-            -1.0,
-            embeddings_per_model["models/finetuned-LaBSE-overall"][
-                [r.embedding_index for r in map_dataset]
-            ],
-        ),
-    ]
-    print(
-        f"MAP with both",
-        mean_average_precision(
+    for combination in [
+        "tone - overall",
+        "-overall",
+        "-entities",
+        "tone - overall - entites",
+        "random",
+    ]:
+        if combination == "tone - overall":
+            map_encoded = [
+                (
+                    1.0,
+                    embeddings_per_model["models/finetuned-LaBSE-tone"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
+                ),
+                (
+                    -1.0,
+                    embeddings_per_model["models/finetuned-LaBSE-overall"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
+                ),
+            ]
+        elif combination == "tone - overall - entites":
+            map_encoded = [
+                (
+                    1.0,
+                    embeddings_per_model["models/finetuned-LaBSE-tone"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
+                ),
+                (
+                    -1.0,
+                    embeddings_per_model["models/finetuned-LaBSE-overall"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
+                ),
+                (
+                    -1.0,
+                    embeddings_per_model["models/finetuned-LaBSE-entities"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
+                ),
+            ]
+        elif combination == "-overall":
+            map_encoded = [
+                (
+                    -1.0,
+                    embeddings_per_model["models/finetuned-LaBSE-overall"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
+                ),
+            ]
+        elif combination == "-entities":
+            map_encoded = [
+                (
+                    -1.0,
+                    embeddings_per_model["models/finetuned-LaBSE-entities"][
+                        [r.embedding_index for r in map_dataset]
+                    ],
+                ),
+            ]
+        elif combination == "random":
+            map_encoded = [
+                (
+                    1.0,
+                    torch.rand_like(
+                        embeddings_per_model["models/finetuned-LaBSE-entities"][
+                            [r.embedding_index for r in map_dataset]
+                        ]
+                    ),
+                ),
+            ]
+        combined_precisions = get_precisions(
             map_encoded,
             map_dataset,
             gold_label=gold_label_func,
-            sum_embeddings=sum_embeddings,
-        ),
-    )
-    print(
-        f"MAP random",
-        mean_average_precision(
-            [(1.0, torch.rand_like(map_encoded[0][1]))],
-            map_dataset,
-            gold_label=gold_label_func,
-            sum_embeddings=sum_embeddings,
-        ),
-    )
+            ks=[5, 10, 100],
+        )
+        csv_writer.writerow(
+            {
+                "name": combination,
+                **{k: f"{v:.3f}" for k, v in combined_precisions.items()},
+            }
+        )
+        print(f"{combination} MAP", combined_precisions["map"])
 
 
 def random_sample(dataset, frac, seed=42):
@@ -636,30 +702,53 @@ def random_sample(dataset, frac, seed=42):
     return dataset
 
 
-def mean_average_precision(
+def weighted_sims(weighted_embeddings):
+    final_embeddings = None
+    for weight, embeddings in weighted_embeddings:
+        if final_embeddings is None:
+            final_embeddings = cos_sim(embeddings, embeddings) * weight
+        else:
+            final_embeddings += cos_sim(embeddings, embeddings) * weight
+    return final_embeddings
+
+
+def get_precisions(
     weighted_embeddings,
     dataset,
+    ks=[5, 10],
     gold_label=lambda x, y: round(x.rating) == round(y.rating),
-    sum_embeddings=False,
 ):
-    sims = None
-    if not sum_embeddings:
-        for weight, embeddings in weighted_embeddings:
-            if sims is None:
-                sims = cos_sim(embeddings, embeddings) * weight
-            else:
-                sims += cos_sim(embeddings, embeddings) * weight
-    else:
-        final_embeddings = torch.zeros_like(weighted_embeddings[0][1])
-        for weight, embeddings in weighted_embeddings:
-            final_embeddings += embeddings * weight
-        sims = cos_sim(final_embeddings, final_embeddings)
-    maps = []
+    sims = weighted_sims(weighted_embeddings)
+    sims.fill_diagonal_(0)
+    precisions_at_k = defaultdict(list)
+    r_precisions = []
+    average_precisions = []
     for i, sim_line in enumerate(sims):
-        labels = [gold_label(r, dataset[i]) for r in dataset]
-        ap = sklearn.metrics.average_precision_score(labels, sim_line)
-        maps.append(ap)
-    return sum(maps) / len(maps)
+        labels = torch.tensor(
+            [
+                gold_label(item, dataset[i]) if j != i else False
+                for j, item in enumerate(dataset)
+            ]
+        )
+        for k in ks:
+            indices = sim_line.topk(k).indices
+            average_precisions.append(
+                sklearn.metrics.average_precision_score(labels, sim_line)
+            )
+            precisions_at_k[k].append(labels[indices].sum() / len(indices))
+        indices = sim_line.topk(labels.sum()).indices
+        r_precisions.append(labels[indices].sum() / labels.sum())
+    out = {
+        "r-precision": (sum(r_precisions) / len(r_precisions)).item(),
+        "map": sum(average_precisions) / len(average_precisions),
+    }
+    out.update(
+        {
+            f"precision@{k}": (sum(precisions) / len(precisions)).item()
+            for k, precisions in precisions_at_k.items()
+        }
+    )
+    return out
 
 
 def select_all_other_embeddings(embeddings, indexes):
@@ -731,18 +820,43 @@ def poetry(all_combinations: bool = False, subtract_overall: bool = False):
 
 
 @app.command()
-def sentiment():
+def sentiment(lang: str):
     dataset = SentimentDataset(
-        "data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.english.txt"
+        f"data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.{lang}.txt",
+        skip_neutral=True,
     )
     model_dict = {
-        "narrative": "models/finetuned-LaBSE-narrative",
         "style": "models/finetuned-LaBSE-style",
-        "entities": "models/finetuned-LaBSE-entities",
         "tone": "models/finetuned-LaBSE-tone",
+        "narrative": "models/finetuned-LaBSE-narrative",
+        "entities": "models/finetuned-LaBSE-entities",
         "overall": "models/finetuned-LaBSE-overall",
         "unfinetuned": "sentence-transformers/LaBSE",
     }
+    print("Dataset size", len(dataset))
+    precision_k = 100
+    result_file = open("sentiments.csv", "w")
+    csv_writer = DictWriter(
+        open(f"sentiments-{lang}.csv", "w"),
+        fieldnames=[
+            "name",
+            "map",
+            "r-precision",
+            "precision@5",
+            "precision@10",
+            "precision@100",
+            "silhouette_score",
+        ],
+    )
+    csv_writer.writeheader()
+    print(
+        "name",
+        "silhouette score",
+        f"precision@{precision_k}",
+        "R-precision",
+        sep=",",
+        file=result_file,
+    )
     for name, model_id in model_dict.items():
         model = SentenceTransformer(model_id)
         encoded = model.encode(
@@ -750,13 +864,24 @@ def sentiment():
             convert_to_tensor=True,
             show_progress_bar=True,
         )
-        print("Using model", name)
         dist_matrix = 1 - cos_sim(encoded, encoded).cpu()
         dist_matrix.fill_diagonal_(0)
         silhouette_score = sklearn.metrics.silhouette_score(
             dist_matrix, [label.value for label, _text in dataset], metric="precomputed"
         )
-        print(f"Silhouette score {silhouette_score:.4f}")
+        precisions = get_precisions(
+            [(1.0, encoded.cpu())],
+            dataset,
+            gold_label=lambda x, y: x[0] == y[0],
+            ks=[5, 10, 100],
+        )
+        csv_writer.writerow(
+            {
+                "name": name,
+                "silhouette_score": silhouette_score,
+                **{k: f"{v:.3f}" for k, v in precisions.items()},
+            }
+        )
 
 
 if __name__ == "__main__":

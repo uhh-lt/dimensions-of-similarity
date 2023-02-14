@@ -11,13 +11,15 @@ class Sentiment(Enum):
 
 
 class SentimentDataset(Dataset):
-    def __init__(self, path, *args, **kwargs):
+    def __init__(self, path, skip_neutral=False, *args, **kwargs):
         path = Path(path)
         self.sentences = []
         self.labels = []
         data_file = open(path)
         for line in data_file:
             _id, sentiment, tweet = line.split("\t")
+            if skip_neutral and sentiment == "neutral":
+                continue
             self.sentences.append(tweet)
             self.labels.append(Sentiment(sentiment))
         super(*args, **kwargs)
