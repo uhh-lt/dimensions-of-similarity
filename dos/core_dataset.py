@@ -1,3 +1,4 @@
+from collections import Counter
 import gzip
 from dataclasses import dataclass
 from typing import List, Optional
@@ -53,6 +54,32 @@ class CoreDataset(Dataset):
             print(f"Tag {tag} not found")
             return []
         return self.tag2documents[tag]
+
+    def documents_by_tags(self, tags: List[str]) -> List[CoreDocument]:
+        # make sure that tags exist
+        for tag in tags:
+            if tag not in self.tag2documents:
+                print(f"Tag {tag} not found")
+                return []
+
+        # find all documents that have one of the tags
+        document_ids_with_one_tag = []
+        for tag in tags:
+            document_ids_with_one_tag.extend(
+                [doc.index for doc in self.tag2documents[tag]]
+            )
+
+        # a document that has all tags is n times in the list (n = len(tags))
+        document_ids_with_all_tags = [
+            item
+            for item, count in Counter(document_ids_with_one_tag).items()
+            if count == len(tags)
+        ]
+
+        # map ids to documents
+        return [
+            self.id2document[document_id] for document_id in document_ids_with_all_tags
+        ]
 
     def __getitem__(self, i: int) -> CoreDocument:
         return self.documents[i]
