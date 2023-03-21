@@ -14,6 +14,7 @@ import pandas as pd
 import sklearn.metrics
 import spacy
 import torch
+from torch.nn import functional as F
 import typer
 from sentence_transformers import InputExample, SentenceTransformer, losses, models
 from sentence_transformers.util import cos_sim
@@ -23,7 +24,7 @@ from tqdm import tqdm
 
 from dos.core_dataset import CoreDataset
 from dos.cosine_loss_multiple_labels import CosineSimilarityLossForMultipleLabels
-from dos.dataset import ArticlePair, SemEvalDataset
+from dos.dataset import DIMENSIONS, ArticlePair, SemEvalDataset
 from dos.evaluator import (
     CorrelationEvaluator,
     MultitaskHeadCorrelationEvaluator,
@@ -371,6 +372,78 @@ def make_multitask_head_training_data(
     ]
     return inputs
 
+
+@app.command(name="compare-correlations")
+def compare_correlations():
+    dataset = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
+
+    geography = torch.tensor([pair.geography for pair in dataset])
+    entities = torch.tensor([pair.entities for pair in dataset])
+    time = torch.tensor([pair.time for pair in dataset])
+    narrative = torch.tensor([pair.narrative for pair in dataset])
+    overall = torch.tensor([pair.overall for pair in dataset])
+    style = torch.tensor([pair.style for pair in dataset])
+    tone = torch.tensor([pair.tone for pair in dataset])
+
+    human_similiarities = torch.stack(
+                (
+                    geography,
+                    entities,
+                    time,
+                    narrative,
+                    overall,
+                    style,
+                    tone,
+                )
+            )
+    human_corrs = torch.corrcoef(human_similiarities)
+
+    pd.set_option("display.precision", 2)
+    
+    human_df = pd.DataFrame(human_corrs, index=DIMENSIONS, columns=dimensions)
+    print(human_df)
+
+    model_dict = {
+        "geography": "models/finetuned-LaBSE-geography",
+        "entities": "models/finetuned-LaBSE-entities",
+        "time": "models/finetuned-LaBSE-time",
+        "narrative": "models/finetuned-LaBSE-narrative",
+        "overall": "models/finetuned-LaBSE-overall",
+        "style": "models/finetuned-LaBSE-style",
+        "tone": "models/finetuned-LaBSE-tone",
+    }
+
+    model_similiarities = []
+    for name, model_id in model_dict.items():
+        # load model
+        model = SentenceTransformer(model_id, device="cuda:0")
+
+        article_1 = model.encode(
+            [pair.article_1.text for pair in dataset],
+            show_progress_bar=True,
+            batch_size=32,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+        article_2 = model.encode(
+            [pair.article_2.text for pair in dataset],
+            show_progress_bar=True,
+            batch_size=32,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+        )
+        sims = torch.sum(article_1 * article_2, dim=-1)
+        model_similiarities.append(sims)
+    
+    model_similiarities = torch.stack(model_similiarities)
+    model_corrs = torch.corrcoef(model_similiarities)
+    model_df = pd.DataFrame(model_corrs.cpu(), index=DIMENSIONS, columns=dimensions)
+    print(model_df)
+
+    diff = model_corrs.cpu() - human_corrs
+    diff_df = pd.DataFrame(diff.cpu(), index=DIMENSIONS, columns=dimensions)
+    with pd.option_context('display.float_format', '{:0.2f}'.format):
+        print(diff_df)
 
 @app.command()
 def main():
