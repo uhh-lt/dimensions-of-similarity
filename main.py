@@ -876,7 +876,10 @@ def sentiment(lang: str):
 
 
 @app.command()
-def core(tag1: str, tag2: str):
+def core(tags1: List[str], tags2: List[str]):
+    tag1 = "_".join(tags1)
+    tag2 = "_".join(tags2)
+
     dataset = CoreDataset(
         train_path="./data/CORE-corpus/train.tsv.gz",
         test_path="./data/CORE-corpus/test.tsv.gz",
@@ -917,7 +920,7 @@ def core(tag1: str, tag2: str):
             # We need to take the numpy version first to move the data of the gpu
             encoded_tag1 = torch.from_numpy(
                 model.encode(
-                    [document.text for document in dataset.documents_by_tag(tag1)],
+                    [document.text for document in dataset.documents_by_tags(tags1)],
                     show_progress_bar=True,
                     batch_size=32,
                 )
@@ -931,7 +934,7 @@ def core(tag1: str, tag2: str):
             # We need to take the numpy version first to move the data of the gpu
             encoded_tag2 = torch.from_numpy(
                 model.encode(
-                    [document.text for document in dataset.documents_by_tag(tag2)],
+                    [document.text for document in dataset.documents_by_tags(tags2)],
                     show_progress_bar=True,
                     batch_size=32,
                 )
@@ -942,8 +945,8 @@ def core(tag1: str, tag2: str):
         encoded = torch.cat((encoded_tag1, encoded_tag2))
         dist_matrix = 2 - cos_sim(encoded, encoded).cpu()
         dist_matrix.fill_diagonal_(0)
-        tags = [tag1 for _ in dataset.documents_by_tag(tag1)] + [
-            tag2 for _ in dataset.documents_by_tag(tag2)
+        tags = [tag1 for _ in dataset.documents_by_tags(tags1)] + [
+            tag2 for _ in dataset.documents_by_tags(tags2)
         ]
         print("Calculating silhouette score")
         silhouette_score = sklearn.metrics.silhouette_score(
