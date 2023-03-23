@@ -32,7 +32,7 @@ from dos.evaluator import (
 )
 from dos.input_example_multiple_labels import InputExampleWithMultipleLabels
 from dos.poetry import PoetryDataset
-from dos.reshape_normalize_layer import ReshapeAndNormalize
+from dos.reshape_normalize_layer import reshape_normalize_layer
 from dos.reviews import ReviewDataset
 from dos.sentiment import Sentiment, SentimentDataset
 
@@ -310,7 +310,7 @@ def multitask_head():
                     activation_function=nn.Tanh(),
                 ),
             )
-            model.add_module("4", ReshapeAndNormalize(num_labels=7))
+            model.add_module("4", reshape_normalize_layer(num_labels=7))
             dev_evaluator.model_name = model_name
             test_evaluator.model_name = model_name
 
@@ -434,6 +434,70 @@ def compare_correlations():
         )
         sims = torch.sum(article_1 * article_2, dim=-1)
         model_similiarities.append(sims)
+    
+    model_similiarities = torch.stack(model_similiarities)
+    model_corrs = torch.corrcoef(model_similiarities)
+    model_df = pd.DataFrame(model_corrs.cpu(), index=DIMENSIONS, columns=dimensions)
+    print(model_df)
+
+    diff = model_corrs.cpu() - human_corrs
+    diff_df = pd.DataFrame(diff.cpu(), index=DIMENSIONS, columns=dimensions)
+    with pd.option_context('display.float_format', '{:0.2f}'.format):
+        print(diff_df)
+
+@app.command(name="compare-correlations-mtl")
+def compare_correlations_mtl():
+    mtl_model = "/ltstorage/home/tfischer/Development/dimensions-of-similarity/models/mtl-LaBSE"
+    model = SentenceTransformer(mtl_model, device="cuda:0")
+
+    dataset = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
+
+    geography = torch.tensor([pair.geography for pair in dataset])
+    entities = torch.tensor([pair.entities for pair in dataset])
+    time = torch.tensor([pair.time for pair in dataset])
+    narrative = torch.tensor([pair.narrative for pair in dataset])
+    overall = torch.tensor([pair.overall for pair in dataset])
+    style = torch.tensor([pair.style for pair in dataset])
+    tone = torch.tensor([pair.tone for pair in dataset])
+
+    human_similiarities = torch.stack(
+                (
+                    geography,
+                    entities,
+                    time,
+                    narrative,
+                    overall,
+                    style,
+                    tone,
+                )
+            )
+    human_corrs = torch.corrcoef(human_similiarities)
+
+    pd.set_option("display.precision", 2)
+    
+    human_df = pd.DataFrame(human_corrs, index=DIMENSIONS, columns=dimensions)
+    print(human_df)
+
+    model_similiarities = []
+    
+
+    article_1 = model.encode(
+        [pair.article_1.text for pair in dataset],
+        show_progress_bar=True,
+        batch_size=32,
+        convert_to_tensor=True,
+    )
+    article_2 = model.encode(
+        [pair.article_2.text for pair in dataset],
+        show_progress_bar=True,
+        batch_size=32,
+        convert_to_tensor=True,
+    )
+
+    for dim_id, dimension in enumerate(DIMENSIONS):
+        sims = F.cosine_similarity(article_1[:, dim_id, :], article_2[:, dim_id, :], dim=1)
+        model_similiarities.append(sims)
+    
     
     model_similiarities = torch.stack(model_similiarities)
     model_corrs = torch.corrcoef(model_similiarities)
