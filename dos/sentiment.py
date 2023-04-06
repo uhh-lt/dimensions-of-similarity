@@ -17,7 +17,10 @@ class SentimentDataset(Dataset):
         self.labels = []
         data_file = open(path)
         for line in data_file:
-            _id, sentiment, tweet = line.split("\t")
+            try:
+                _id, sentiment, tweet = line.split("\t", 2)
+            except ValueError:
+                continue
             if skip_neutral and sentiment == "neutral":
                 continue
             self.sentences.append(tweet)

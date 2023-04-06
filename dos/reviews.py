@@ -1,5 +1,6 @@
 import itertools
 import random
+from collections import Counter
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
@@ -41,7 +42,13 @@ class Review:
 
 
 class ReviewDataset(Dataset):
-    def __init__(self, path: str, sample: float = 1.0, seed=42):
+    def __init__(
+        self,
+        path: str,
+        limit: Optional[int] = None,
+        num_reviews_per_product: int = 100,
+        randomizer=random.Random(42),
+    ):
         num_fields = 8
         self.reviews: List[Review] = []
         in_file = open(path)
@@ -50,12 +57,22 @@ class ReviewDataset(Dataset):
             num_fields,
             step=num_fields,
         )
+        products = Counter()
         i = 0
-        randomizer = random.Random(seed)
+        last_product_id = None
+        current_product = []
         for entry in iterator:
-            if randomizer.random() > sample:
-                continue
-            self.reviews.append(Review.from_lines(entry, i))
+            new_review = Review.from_lines(entry, i)
+            if last_product_id != new_review.product_id:
+                if len(products.keys()) == limit:
+                    break
+                elif len(current_product) >= num_reviews_per_product:
+                    products.update([last_product_id])
+                    randomizer.shuffle(current_product)
+                    self.reviews.extend(current_product[:num_reviews_per_product])
+                last_product_id = new_review.product_id
+                current_product = []
+            current_product.append(new_review)
             i += 1
 
     def description(self):

@@ -1,7 +1,7 @@
 import dataclasses
 import os
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from csv import DictWriter
 from enum import Enum
 from itertools import count
@@ -534,6 +534,7 @@ def finetune_model(
 
 class ReviewSimilarityDimensions(Enum):
     DIFFERENT_PRODUCT_SAME_RATING = "different_product_same_rating"
+    SAME_PRODUCT_DIFFERENT_RATING = "same_product_different_rating"
     SAME_RATING = "same_rating"
     SAME_PRODUCT = "same_product"
 
@@ -542,6 +543,9 @@ class ReviewSimilarityDimensions(Enum):
             ReviewSimilarityDimensions.DIFFERENT_PRODUCT_SAME_RATING: lambda a, b: a.product_id
             != b.product_id
             and round(a.rating) == round(b.rating),
+            ReviewSimilarityDimensions.SAME_PRODUCT_DIFFERENT_RATING: lambda a, b: a.product_id
+            == b.product_id
+            and round(a.rating) != round(b.rating),
             ReviewSimilarityDimensions.SAME_RATING: lambda a, b: round(a.rating)
             == round(b.rating),
             ReviewSimilarityDimensions.SAME_PRODUCT: lambda a, b: a.product_id
@@ -552,20 +556,20 @@ class ReviewSimilarityDimensions(Enum):
 @app.command()
 def reviews(
     dimension: ReviewSimilarityDimensions = "different_product_same_rating",
-    split: float = 1.0,
+    limit: int = 1000,
 ):
     """
     prams:
         split: randomly only use `split` fraction of the dataset
     """
-    path = Path("data/amazon_reviews/amazon_80k.txt")
-    dataset = ReviewDataset(path, sample=split)
+    path = Path("data/amazon_reviews/amazon_total.txt")
+    dataset = ReviewDataset(path, limit=limit)
     print(dataset.description())
-    print(f"Using {split * 100}% of the data that is {len(dataset)} reviews.")
+    print(f"Using first {limit} products of the data that is {len(dataset)} reviews.")
     embeddings_per_model = dict()
     gold_label_func = dimension.review_comparison()
     csv_writer = DictWriter(
-        open(f"reviews-{split}.csv", "w"),
+        open(f"reviews-{limit}.csv", "w"),
         fieldnames=[
             "name",
             "map",
@@ -585,105 +589,100 @@ def reviews(
         model = SentenceTransformer(model_name, device="cuda:0")
         os.makedirs("data/cache/", exist_ok=True)
         review_texts = [r.review or "" for r in dataset]
-        cache_path = f"data/cache/{path.stem}-{model_name.split('/')[-1]}{'-split=' + str(split) if split != 1.0 else ''}.pt"
+        cache_path = f"data/cache/{path.stem}-{model_name.split('/')[-1]}.pt"
         if not os.path.exists(cache_path):
             # We need to take the numpy version first to move the data of the gpu
             encoded = torch.from_numpy(
-                model.encode(review_texts, show_progress_bar=True, batch_size=32)
+                model.encode(review_texts, show_progress_bar=True, batch_size=64)
             )
             torch.save(encoded, cache_path)
         else:
-            encoded = torch.load(cache_path, map_location="cpu")
-        map_sample = 0.1
-        map_dataset = random_sample(dataset, map_sample)
-        map_encoded = encoded[[r.embedding_index for r in map_dataset]]
+            print("Loading from", cache_path)
+            encoded = torch.load(cache_path)
+        dataset_sample = dataset
+        encoded_sample = encoded[[r.embedding_index for r in dataset_sample]]
+        embeddings_per_model[model_name] = encoded_sample
         precisions = get_precisions(
-            [(1.0, map_encoded)],
-            map_dataset,
+            [(1.0, encoded_sample)],
+            dataset_sample,
             gold_label=gold_label_func,
             ks=[5, 10, 100],
         )
         print(f"MAP with {model_name}:", precisions["map"])
-        embeddings_per_model[model_name] = encoded
         csv_writer.writerow(
             {"name": model_name, **{k: f"{v:.3f}" for k, v in precisions.items()}}
         )
-    map_dataset = random_sample(dataset, map_sample)
     for combination in [
-        "tone - overall",
-        "-overall",
-        "-entities",
-        "tone - overall - entites",
-        "random",
+        "tone - entities",
+        "2 * tone - overall",
+        # "overall + entities - tone",
+        # "overall + entities",
+        # "overall - tone",
+        # "-overall",
+        # "-entities",
+        # "tone - overall - entites",
+        # "random",
     ]:
         if combination == "tone - overall":
-            map_encoded = [
-                (
-                    1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-tone"][
-                        [r.embedding_index for r in map_dataset]
-                    ],
-                ),
-                (
-                    -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-overall"][
-                        [r.embedding_index for r in map_dataset]
-                    ],
-                ),
+            encoded_sample = [
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-tone"]),
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-overall"]),
+            ]
+        if combination == "2 * tone - overall":
+            encoded_sample = [
+                (2.0, embeddings_per_model["models/finetuned-LaBSE-tone"]),
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-overall"]),
+            ]
+        elif combination == "tone - entities":
+            encoded_sample = [
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-tone"]),
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-entities"]),
+            ]
+        elif combination == "overall + entities - tone":
+            encoded_sample = [
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-tone"]),
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-overall"]),
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-entities"]),
+            ]
+        elif combination == "overall + entities":
+            encoded_sample = [
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-entities"]),
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-overall"]),
+            ]
+        elif combination == "overall - tone":
+            encoded_sample = [
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-tone"]),
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-overall"]),
             ]
         elif combination == "tone - overall - entites":
-            map_encoded = [
-                (
-                    1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-tone"][
-                        [r.embedding_index for r in map_dataset]
-                    ],
-                ),
-                (
-                    -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-overall"][
-                        [r.embedding_index for r in map_dataset]
-                    ],
-                ),
-                (
-                    -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-entities"][
-                        [r.embedding_index for r in map_dataset]
-                    ],
-                ),
+            encoded_sample = [
+                (1.0, embeddings_per_model["models/finetuned-LaBSE-tone"]),
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-overall"]),
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-entities"]),
             ]
         elif combination == "-overall":
-            map_encoded = [
-                (
-                    -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-overall"][
-                        [r.embedding_index for r in map_dataset]
-                    ],
-                ),
+            encoded_sample = [
+                (-1.0, embeddings_per_model["models/finetuned-LaBSE-overall"]),
             ]
         elif combination == "-entities":
-            map_encoded = [
+            encoded_sample = [
                 (
                     -1.0,
-                    embeddings_per_model["models/finetuned-LaBSE-entities"][
-                        [r.embedding_index for r in map_dataset]
-                    ],
+                    embeddings_per_model["models/finetuned-LaBSE-entities"],
                 ),
             ]
         elif combination == "random":
-            map_encoded = [
+            encoded_sample = [
                 (
                     1.0,
                     torch.rand_like(
-                        embeddings_per_model["models/finetuned-LaBSE-entities"][
-                            [r.embedding_index for r in map_dataset]
-                        ]
+                        embeddings_per_model["models/finetuned-LaBSE-entities"]
                     ),
                 ),
             ]
         combined_precisions = get_precisions(
-            map_encoded,
-            map_dataset,
+            encoded_sample,
+            dataset_sample,
             gold_label=gold_label_func,
             ks=[5, 10, 100],
         )
@@ -818,6 +817,86 @@ def poetry(all_combinations: bool = False, subtract_overall: bool = False):
                 label_tensor, predictions
             )
             print("Accuracy on", dimension, f"{balanced_accuracy:.02f}")
+
+
+@app.command()
+def sentiment_svm(lang: str = "english", model_name: str = "tone"):
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import accuracy_score, f1_score, recall_score
+    from sklearn.model_selection import train_test_split
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.svm import SVC
+
+    # train_dataset =
+    if lang == "english":
+        train_dir = (
+            "data/SemEval2017-task4-test/train/2017_English_final/GOLD/Subtask_A"
+        )
+        train_datasets = []
+        for file_name in os.listdir(train_dir):
+            if file_name != "README.txt" and file_name.endswith(".txt"):
+                train_datasets.append(
+                    SentimentDataset(os.path.join(train_dir, file_name))
+                )
+        dataset = torch.utils.data.ConcatDataset(train_datasets)
+        test_dataset = SentimentDataset(
+            f"data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.english.txt",
+        )
+    elif lang == "arabic":
+        dataset = SentimentDataset(
+            f"data/SemEval2017-task4-test/train/2017_Arabic_train_final/GOLD/SemEval2017-task4-train.subtask-A.arabic.txt",
+        )
+        test_dataset = SentimentDataset(
+            f"data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.arabic.txt",
+        )
+    else:
+        raise ValueError("Invalid language", lang)
+    model = SentenceTransformer(f"models/finetuned-LaBSE-{model_name}")
+    labels_train, features_train = zip(*dataset)
+    labels_test, features_test = zip(*test_dataset)
+    labels_train = [str(label) for label in labels_train]
+    labels_test = [str(label) for label in labels_test]
+    embeddings_train = model.encode(
+        features_train, convert_to_tensor=True, show_progress_bar=True
+    )
+    embeddings_test = model.encode(
+        features_test, convert_to_tensor=True, show_progress_bar=True
+    )
+    print("=== KNN")
+    knn = KNeighborsClassifier(n_neighbors=10, metric="cosine", n_jobs=8)
+    knn.fit(embeddings_train.cpu(), labels_train)
+    outputs = knn.predict(embeddings_test.cpu())
+    score = recall_score(labels_test, outputs, average="macro")
+    f1 = f1_score(labels_test, outputs, average="macro")
+    accuracy = accuracy_score(labels_test, outputs)
+    print("Recall", score)
+    print("Accuracy", accuracy)
+    print("F1", f1)
+    print("=== Linear SVM")
+    svm = SVC(kernel="linear")
+    svm.fit(embeddings_train.cpu(), labels_train)
+    outputs = svm.predict(embeddings_test.cpu())
+    score = recall_score(labels_test, outputs, average="macro")
+    f1 = f1_score(labels_test, outputs, average="macro")
+    accuracy = accuracy_score(labels_test, outputs)
+    print("Recall", score)
+    print("F1", f1)
+    print("Accuracy", accuracy)
+    print("=== K-Means")
+    kmeans = KMeans(n_clusters=3).fit(embeddings_train.cpu())
+    labels = kmeans.predict(embeddings_train.cpu())
+    counts = defaultdict(Counter)
+    for label, label_name in zip(labels, labels_train):
+        counts[label].update({label_name: 1})
+    translation = {k: v.most_common(1)[0][0] for k, v in counts.items()}
+    print(translation)
+    outputs = [translation[label] for label in kmeans.predict(embeddings_test.cpu())]
+    score = recall_score(labels_test, outputs, average="macro")
+    f1 = f1_score(labels_test, outputs, average="macro")
+    accuracy = accuracy_score(labels_test, outputs)
+    print("Recall", score)
+    print("F1", f1)
+    print("Accuracy", accuracy)
 
 
 @app.command()
