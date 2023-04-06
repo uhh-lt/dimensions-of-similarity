@@ -4,13 +4,13 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 
-class ReshapeAndNormalize(nn.Module):
+class reshape_normalize_layer(nn.Module):
     """
     This layer normalizes embeddings to unit length
     """
 
-    def __init__(self, num_labels: int):
-        super(ReshapeAndNormalize, self).__init__()
+    def __init__(self, num_labels: int = 7):
+        super(reshape_normalize_layer, self).__init__()
         self.num_labels = num_labels
 
     def forward(self, features: Dict[str, Tensor]):
@@ -36,4 +36,4 @@ class ReshapeAndNormalize(nn.Module):
 
     @staticmethod
     def load(input_path):
-        return ReshapeAndNormalize()
+        return reshape_normalize_layer()
