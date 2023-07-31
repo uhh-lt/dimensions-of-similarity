@@ -1,5 +1,5 @@
-from collections import Counter
 import gzip
+from collections import Counter
 from dataclasses import dataclass
 from typing import List, Optional
 

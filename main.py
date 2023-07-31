@@ -14,11 +14,11 @@ import pandas as pd
 import sklearn.metrics
 import spacy
 import torch
-from torch.nn import functional as F
 import typer
 from sentence_transformers import InputExample, SentenceTransformer, losses, models
 from sentence_transformers.util import cos_sim
 from torch import nn
+from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -401,20 +401,20 @@ def compare_correlations():
     tone = torch.tensor([pair.tone for pair in dataset])
 
     human_similiarities = torch.stack(
-                (
-                    geography,
-                    entities,
-                    time,
-                    narrative,
-                    overall,
-                    style,
-                    tone,
-                )
-            )
+        (
+            geography,
+            entities,
+            time,
+            narrative,
+            overall,
+            style,
+            tone,
+        )
+    )
     human_corrs = torch.corrcoef(human_similiarities)
 
     pd.set_option("display.precision", 2)
-    
+
     human_df = pd.DataFrame(human_corrs, index=DIMENSIONS, columns=dimensions)
     print(human_df)
 
@@ -449,7 +449,7 @@ def compare_correlations():
         )
         sims = torch.sum(article_1 * article_2, dim=-1)
         model_similiarities.append(sims)
-    
+
     model_similiarities = torch.stack(model_similiarities)
     model_corrs = torch.corrcoef(model_similiarities)
     model_df = pd.DataFrame(model_corrs.cpu(), index=DIMENSIONS, columns=dimensions)
@@ -457,15 +457,18 @@ def compare_correlations():
 
     diff = model_corrs.cpu() - human_corrs
     diff_df = pd.DataFrame(diff.cpu(), index=DIMENSIONS, columns=dimensions)
-    with pd.option_context('display.float_format', '{:0.2f}'.format):
+    with pd.option_context("display.float_format", "{:0.2f}".format):
         print(diff_df)
+
 
 @app.command(name="compare-correlations-mtl")
 def compare_correlations_mtl():
     """
     Code for section 4.4 "Comparing human judgments and machine judgments" of the paper, mtl variant.
     """
-    mtl_model = "/ltstorage/home/tfischer/Development/dimensions-of-similarity/models/mtl-LaBSE"
+    mtl_model = (
+        "/ltstorage/home/tfischer/Development/dimensions-of-similarity/models/mtl-LaBSE"
+    )
     model = SentenceTransformer(mtl_model, device="cuda:0")
 
     dataset = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
@@ -479,25 +482,24 @@ def compare_correlations_mtl():
     tone = torch.tensor([pair.tone for pair in dataset])
 
     human_similiarities = torch.stack(
-                (
-                    geography,
-                    entities,
-                    time,
-                    narrative,
-                    overall,
-                    style,
-                    tone,
-                )
-            )
+        (
+            geography,
+            entities,
+            time,
+            narrative,
+            overall,
+            style,
+            tone,
+        )
+    )
     human_corrs = torch.corrcoef(human_similiarities)
 
     pd.set_option("display.precision", 2)
-    
+
     human_df = pd.DataFrame(human_corrs, index=DIMENSIONS, columns=dimensions)
     print(human_df)
 
     model_similiarities = []
-    
 
     article_1 = model.encode(
         [pair.article_1.text for pair in dataset],
@@ -513,10 +515,11 @@ def compare_correlations_mtl():
     )
 
     for dim_id, dimension in enumerate(DIMENSIONS):
-        sims = F.cosine_similarity(article_1[:, dim_id, :], article_2[:, dim_id, :], dim=1)
+        sims = F.cosine_similarity(
+            article_1[:, dim_id, :], article_2[:, dim_id, :], dim=1
+        )
         model_similiarities.append(sims)
-    
-    
+
     model_similiarities = torch.stack(model_similiarities)
     model_corrs = torch.corrcoef(model_similiarities)
     model_df = pd.DataFrame(model_corrs.cpu(), index=DIMENSIONS, columns=dimensions)
@@ -524,7 +527,7 @@ def compare_correlations_mtl():
 
     diff = model_corrs.cpu() - human_corrs
     diff_df = pd.DataFrame(diff.cpu(), index=DIMENSIONS, columns=dimensions)
-    with pd.option_context('display.float_format', '{:0.2f}'.format):
+    with pd.option_context("display.float_format", "{:0.2f}".format):
         print(diff_df)
 
 
