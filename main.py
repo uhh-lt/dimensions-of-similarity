@@ -148,6 +148,9 @@ def fasttext_similarity(
     kind: WordKind = WordKind.ALL,
     subset: DataSubset = "en",
 ):
+    """
+    Code for section 4.2 "Basesline and Entity-Focus" of the paper.
+    """
     current_dataset = None
     if split == "test":
         test = SemEvalDataset(
@@ -210,6 +213,12 @@ def fasttext_similarity(
 
 @app.command(name="multitask-prompt")
 def multitask_prompt():
+    """
+    Unused code for finetuning.
+
+    This prefixes the model input with the desired attention.
+    In our experiments this process worked worse still than the MTL head variant below.
+    """
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
     test = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
     train, dev = dataset.random_split(0.8)
@@ -290,6 +299,9 @@ def make_multitask_prompt_training_data(data: List[ArticlePair]) -> List[InputEx
 
 @app.command(name="multitask-head")
 def multitask_head():
+    """
+    Code for section 4.3 "Finetuning" of the paper, multitask variant.
+    """
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
     test = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
     train, dev = dataset.random_split(0.8)
@@ -375,6 +387,9 @@ def make_multitask_head_training_data(
 
 @app.command(name="compare-correlations")
 def compare_correlations():
+    """
+    Code for section 4.4 "Comparing human judgments and machine judgments" of the paper.
+    """
     dataset = SemEvalDataset(Path("data/eval.csv"), Path("data/eval_data"))
 
     geography = torch.tensor([pair.geography for pair in dataset])
@@ -447,6 +462,9 @@ def compare_correlations():
 
 @app.command(name="compare-correlations-mtl")
 def compare_correlations_mtl():
+    """
+    Code for section 4.4 "Comparing human judgments and machine judgments" of the paper, mtl variant.
+    """
     mtl_model = "/ltstorage/home/tfischer/Development/dimensions-of-similarity/models/mtl-LaBSE"
     model = SentenceTransformer(mtl_model, device="cuda:0")
 
@@ -509,8 +527,12 @@ def compare_correlations_mtl():
     with pd.option_context('display.float_format', '{:0.2f}'.format):
         print(diff_df)
 
+
 @app.command()
 def main():
+    """
+    Code for section 4.3 "Finetuning" of the paper, individual models per dimension.
+    """
     result_dir = "results"
     Path(result_dir).mkdir(parents=True, exist_ok=True)
     dataset = SemEvalDataset(Path("data/train.csv"), Path("data/train_data"))
@@ -696,6 +718,8 @@ def reviews(
     limit: int = 1000,
 ):
     """
+    Code for section 5.1 "Product Reviews Experiments" of the paper.
+
     prams:
         split: randomly only use `split` fraction of the dataset
     """
@@ -898,6 +922,9 @@ def select_all_other_embeddings(embeddings, indexes):
 
 @app.command()
 def poetry(all_combinations: bool = False, subtract_overall: bool = False):
+    """
+    Code for section 5.4 "German Poetry Experiment" of the paper.
+    """
     dataset = PoetryDataset("data/jcls2022-poem-similarity")
     model_dict = {
         "content": "models/finetuned-LaBSE-narrative",
@@ -958,6 +985,9 @@ def poetry(all_combinations: bool = False, subtract_overall: bool = False):
 
 @app.command()
 def sentiment_svm(lang: str = "english", model_name: str = "tone"):
+    """
+    Code for section 5.3 "Sentiment Classification Experiment" in the paper.
+    """
     from sklearn.cluster import KMeans
     from sklearn.metrics import accuracy_score, f1_score, recall_score
     from sklearn.model_selection import train_test_split
@@ -1038,6 +1068,9 @@ def sentiment_svm(lang: str = "english", model_name: str = "tone"):
 
 @app.command()
 def sentiment(lang: str):
+    """
+    Code for section 5.3 "Sentiment Classification Experiment" in the paper, KNN variant.
+    """
     dataset = SentimentDataset(
         f"data/SemEval2017-task4-test/SemEval2017-task4-test.subtask-A.{lang}.txt",
         skip_neutral=True,
@@ -1093,6 +1126,9 @@ def sentiment(lang: str):
 
 @app.command()
 def core(tags1: List[str], tags2: List[str]):
+    """
+    Code for section 5.2 "Text Register Experiment" in the paper.
+    """
     tag1 = "_".join(tags1)
     tag2 = "_".join(tags2)
 
